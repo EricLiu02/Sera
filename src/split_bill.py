@@ -1,6 +1,7 @@
 from types import List
 from agent import MistralAgent
 from PIL import Image
+import pytesseract
 
 
 class SplitBill(MistralAgent):
@@ -8,12 +9,16 @@ class SplitBill(MistralAgent):
         MistralAgent.__init__(self)
 
     # Public Methods
-    def run(user_prompt: str, image) -> str:
-        pass
+    def run(self, user_prompt: str, image: Image.Image) -> str:
+        image_raw_text = self.__image_to_raw_text(image)
+
+        
+        final_breakdown = ""
+        return final_breakdown
 
     # Private Methods
-    def __image_to_raw_text(self) -> str:
-        pass
+    def __image_to_raw_text(self, image: Image.Image) -> str:
+        return pytesseract.image_to_string(image)
 
     def __raw_text_to_breakdown(self) -> List[tuple[str, int]]:
         pass

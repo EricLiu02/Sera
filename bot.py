@@ -1,10 +1,10 @@
-import os
-import discord
-import logging
-
-from discord.ext import commands
-from dotenv import load_dotenv
 from agent import MistralAgent
+from dotenv import load_dotenv
+from discord.ext import commands
+import logging
+import discord
+import os
+
 
 PREFIX = "!"
 
