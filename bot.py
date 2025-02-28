@@ -5,6 +5,11 @@ import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 from agent import MistralAgent
+from check_loc import set_user_location, get_user_location
+from conversation_tracker import (
+    start_conversation, update_conversation, is_conversation_active, 
+    end_conversation, check_for_ended_conversations
+)
 
 PREFIX = "!"
 
@@ -51,14 +56,50 @@ async def on_message(message: discord.Message):
     # Ignore messages from self or other bots to prevent infinite loops.
     if message.author.bot or message.content.startswith("!"):
         return
-
-    # Process the message with the agent you wrote
-    # Open up the agent.py file to customize the agent
+    
+    channel_id = str(message.channel.id)
+    user_id = str(message.author.id)
+    
+    # Check if this message contains "sera" to start a conversation
+    message_words = message.content.lower().split()
+    is_addressing_sera = "sera" in message_words or any(
+        word.startswith("sera,") or word.startswith("sera.") or 
+        word.startswith("sera!") or word.startswith("sera?") 
+        for word in message_words
+    )
+    
+    # Start a new conversation if addressing Sera directly
+    if is_addressing_sera:
+        start_conversation(channel_id, user_id, message.content)
+        logger.info(f"Starting conversation with {message.author} in channel {message.channel}")
+    # Or continue an existing conversation if the message is relevant
+    elif is_conversation_active(channel_id):
+        # Check if the message is relevant to the ongoing conversation
+        is_relevant = await agent.is_message_relevant(message, channel_id)
+        if is_relevant:
+            update_conversation(channel_id, user_id, message.content)
+            logger.info(f"Continuing conversation with {message.author} in channel {message.channel}")
+        else:
+            # Message is not relevant to the conversation
+            logger.info(f"Ignoring irrelevant message from {message.author}")
+            return
+    else:
+        # Not addressing Sera and no active conversation
+        return
+    
+    # Process the message with the agent
     logger.info(f"Processing message from {message.author}: {message.content}")
     response = await agent.run(message)
-
+    
     # Send the response back to the channel
     await message.reply(response)
+    
+    # Check if conversations have ended due to timeout
+    ended_conversations = check_for_ended_conversations()
+    for ended_channel_id, participants in ended_conversations.items():
+        channel = bot.get_channel(int(ended_channel_id))
+        if channel:
+            await channel.send("Seems like the party has ended, I am going back home. Feel free to call me again by saying 'Sera'!")
 
 
 # Commands
@@ -74,6 +115,30 @@ async def ping(ctx, *, arg=None):
     else:
         await ctx.send(f"Pong! Your argument was {arg}")
 
+@bot.command(name="setlocation", help="Set your current location (street, district, city, etc.)")
+async def set_location(ctx, *, location=None):
+    """Set the user's location."""
+    if location is None:
+        await ctx.send("Please provide a location. Example: !setlocation New York")
+        return
+    
+    set_user_location(str(ctx.author.id), location)
+    await ctx.send(f"Your location has been set to: {location}")
+
+@bot.command(name="location", help="Check a user's location")
+async def check_location(ctx, member: discord.Member = None):
+    """Check a user's location."""
+    # If no member is specified, use the command author
+    if member is None:
+        member = ctx.author
+    
+    location = get_user_location(str(member.id))
+    if location:
+        await ctx.send(f"{member.display_name}'s location is: {location}")
+    else:
+        await ctx.send(f"{member.display_name} hasn't set their location yet. They can use !setlocation to set it.")
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
+
+
