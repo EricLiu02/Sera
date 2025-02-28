@@ -26,7 +26,7 @@ pending_location_requests = {}
 class MistralAgent:
     def __init__(self):
         # Direct initialization for testing
-        MISTRAL_API_KEY = "MmyGtR2riSUn2Gxl9EbIqUqZUI9u9m1A"  # Your API key
+        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")  # Read from .env file
         self.client = Mistral(api_key=MISTRAL_API_KEY)
 
     async def run(self, message: discord.Message):
