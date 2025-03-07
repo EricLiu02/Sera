@@ -10,4 +10,8 @@ dependencies = [
     "mistralai>=1.4.0",
     "python-dotenv>=1.0.1",
     "twilio>=8.0.0",
+    "pyngrok>=5.0.0",
+    "uvicorn>=0.25.0",
+    "openai>=1.0.0",
+    "fastapi>=0.110.0",
 ]
