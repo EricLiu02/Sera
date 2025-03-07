@@ -4,7 +4,7 @@ import logging
 
 from discord.ext import commands
 from dotenv import load_dotenv
-from agent import RestaurantAgent
+from restaurant_agent import RestaurantAgent
 
 PREFIX = "!"
 

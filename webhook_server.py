@@ -3,10 +3,9 @@ from fastapi.responses import StreamingResponse
 import uvicorn
 from pyngrok import ngrok, conf
 import os
-from agent import TwilioReservationAgent, ReservationDetails
+from restaurant_agent import TwilioReservationAgent, ReservationDetails
 from dotenv import load_dotenv
 from io import BytesIO
-import tempfile
 import logging
 from twilio.twiml.voice_response import VoiceResponse
 from datetime import datetime
@@ -92,7 +91,8 @@ async def handle_gather(request: Request):
         logger.error(f"Error in gather handler: {str(e)}", exc_info=True)
         response = VoiceResponse()
         response.say(
-            "I apologize for the technical difficulty. Please try again.", voice="alice"
+            "I apologize for the technical difficulty. Please try again.",
+            voice="Polly.Russell",
         )
         return Response(content=str(response), media_type="application/xml")
 
@@ -100,7 +100,7 @@ async def handle_gather(request: Request):
 @app.post("/retry")
 async def handle_retry(request: Request):
     response = VoiceResponse()
-    response.say("I didn't receive any input. Goodbye.", voice="alice")
+    response.say("I didn't receive any input. Goodbye.", voice="Polly.Russell")
     return Response(content=str(response), media_type="application/xml")
 
 
