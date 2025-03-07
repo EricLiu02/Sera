@@ -1,18 +1,22 @@
-import os
-from mistralai import Mistral
-import discord
-from twilio.rest import Client
-from datetime import datetime
-from typing import Optional, Dict
-import re
 import json
-from twilio.twiml.voice_response import VoiceResponse
-from openai import AsyncOpenAI
 import logging
+import os
+import re
+from datetime import datetime
+from typing import Dict, Optional
+from dataclasses import asdict
+
+import discord
+from mistralai import Mistral
+from openai import AsyncOpenAI
+from twilio.rest import Client
+from twilio.twiml.voice_response import VoiceResponse
+import httpx
+
 from restaurant_prompts import (
-    get_restaurant_conversation_prompt,
-    get_extract_reservation_details_prompt,
     ReservationDetails,
+    get_extract_reservation_details_prompt,
+    get_restaurant_conversation_prompt,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -64,6 +68,18 @@ class TwilioReservationAgent:
         raise ValueError(
             "Invalid phone number format. Please provide a 10-digit US number or international number with country code."
         )
+
+    def datetime_to_str(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
+    def reservation_to_dict(self, reservation: ReservationDetails) -> dict:
+        data = asdict(reservation)
+        # Convert datetime to string
+        if data.get("reservation_time"):
+            data["reservation_time"] = self.datetime_to_str(data["reservation_time"])
+        return data
 
     async def handle_conversation(
         self,
@@ -141,6 +157,12 @@ class TwilioReservationAgent:
                 ai_response = "".join(full_response)
                 logger.info(f"AI response: '{ai_response}'")
 
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        f"{self.webhook_base_url}/set_reservation",
+                        json=self.reservation_to_dict(reservation),
+                    )
+
                 # Generate TwiML with the AI response
                 response = VoiceResponse()
                 gather = response.gather(
@@ -150,7 +172,7 @@ class TwilioReservationAgent:
                     language="en-US",
                     speechTimeout="auto",
                 )
-                gather.say(ai_response, voice="Polly.Russell")
+                gather.say(ai_response, voice="woman")
 
                 return str(response)
 
@@ -159,7 +181,7 @@ class TwilioReservationAgent:
             response = VoiceResponse()
             response.say(
                 "I apologize for the technical difficulty. Could you please repeat that?",
-                voice="alice",
+                voice="woman",
             )
             return str(response)
 

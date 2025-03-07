@@ -1,14 +1,14 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse
-import uvicorn
-from pyngrok import ngrok, conf
 import os
-from restaurant_agent import TwilioReservationAgent, ReservationDetails
-from dotenv import load_dotenv
-from io import BytesIO
-import logging
-from twilio.twiml.voice_response import VoiceResponse
 from datetime import datetime
+import logging
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, Response
+from pyngrok import ngrok, conf
+from twilio.twiml.voice_response import VoiceResponse
+import uvicorn
+
+from restaurant_agent import TwilioReservationAgent, ReservationDetails
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,56 +34,47 @@ with open("webhook_url.txt", "w") as f:
 
 app = FastAPI()
 agent = TwilioReservationAgent()
+current_reservation = None
 
 
-@app.post("/stream")
-async def handle_stream(request: Request):
-    logger.info("Received stream request")
-    try:
-        # Simple test response
-        test_message = "This is a test response."
-        speech_response = await agent.openai_client.audio.speech.create(
-            model="tts-1", voice="alloy", input=test_message
-        )
-
-        return StreamingResponse(
-            BytesIO(speech_response.content), media_type="audio/mpeg"
-        )
-    except Exception as e:
-        logger.error(f"Error in stream handler: {str(e)}", exc_info=True)
-        return {"error": str(e)}
-
-
-@app.post("/status")
-async def call_status(request: Request):
-    form_data = await request.form()
-    logger.info(f"Call status update: {dict(form_data)}")
-    return {"success": True}
+@app.post("/set_reservation")
+async def set_reservation(reservation: dict):
+    global current_reservation
+    current_reservation = ReservationDetails(
+        party_size=reservation["party_size"],
+        reservation_time=datetime.fromisoformat(reservation["reservation_time"]),
+        customer_name=reservation["customer_name"],
+        restaurant_phone=reservation["restaurant_phone"],
+        special_requests=reservation.get(
+            "special_requests"
+        ),  # Using .get() since it's optional
+    )
+    logger.info(f"Reservation set: {current_reservation}")
+    print(f"Reservation set: {current_reservation}")
+    return {"status": "success"}
 
 
 @app.post("/gather")
 async def handle_gather(request: Request):
     try:
-        # Get speech input
         form_data = await request.form()
         speech_result = form_data.get("SpeechResult", "")
-        logger.info(f"Received speech: {speech_result}")
-
-        # Get reservation details from the call
         call_sid = form_data.get("CallSid")
+        logger.info(f"Received speech: {speech_result}")
+        logger.info(f"Form data: {form_data}")
         logger.info(f"Call SID: {call_sid}")
 
-        # Create a test reservation for now (you'll need to store/retrieve the actual reservation)
-        reservation = ReservationDetails(
-            restaurant_phone="+1234567890",
-            party_size=4,
-            reservation_time=datetime.now(),
-            customer_name="John Doe",
-        )
+        if not current_reservation:
+            logger.error(f"No reservation found for call {call_sid}")
+            response = VoiceResponse()
+            response.say(
+                "I apologize, but I've lost track of the conversation. Goodbye.",
+                voice="alice",
+            )
+            return Response(content=str(response), media_type="application/xml")
 
-        # Let the agent handle everything
         twiml_response = await agent.handle_restaurant_response(
-            speech_result, reservation
+            speech_result, current_reservation
         )
         return Response(content=twiml_response, media_type="application/xml")
 
@@ -91,17 +82,9 @@ async def handle_gather(request: Request):
         logger.error(f"Error in gather handler: {str(e)}", exc_info=True)
         response = VoiceResponse()
         response.say(
-            "I apologize for the technical difficulty. Please try again.",
-            voice="Polly.Russell",
+            "I apologize for the technical difficulty. Please try again.", voice="alice"
         )
         return Response(content=str(response), media_type="application/xml")
-
-
-@app.post("/retry")
-async def handle_retry(request: Request):
-    response = VoiceResponse()
-    response.say("I didn't receive any input. Goodbye.", voice="Polly.Russell")
-    return Response(content=str(response), media_type="application/xml")
 
 
 if __name__ == "__main__":
