@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict
 import re
+import json
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = "You are a helpful assistant."
@@ -25,6 +26,7 @@ class TwilioReservationAgent:
         self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         self.twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
+        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
         if not all([self.account_sid, self.auth_token, self.twilio_number]):
             raise ValueError(
@@ -32,6 +34,7 @@ class TwilioReservationAgent:
             )
 
         self.client = Client(self.account_sid, self.auth_token)
+        self.mistral_client = Mistral(api_key=MISTRAL_API_KEY)
 
     def _format_phone_number(self, phone: str) -> str:
         """Formats phone number to E.164 format"""
@@ -83,67 +86,146 @@ class TwilioReservationAgent:
         except Exception as e:
             return f"❌ An unexpected error occurred: {str(e)}"
 
-    def parse_reservation_request(self, message: str) -> Optional[ReservationDetails]:
-        """
-        Parses a reservation request message
-        Returns ReservationDetails or None if parsing fails
+    def _get_prompt(self) -> str:
+        """Returns the prompt with the current date/time context"""
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        Example message format:
-        "Make a reservation at +1234567890 for 4 people tomorrow at 7:30 PM under John Doe"
+        datetime_context = f"""
+    Extract reservation details from the message and convert relative dates/times to absolute dates.
+    Current date/time reference: {current_datetime}
+
+    Validate the following:
+    1. All required fields are present
+    2. Reservation time must be in the future
+    3. Phone number must be valid (with country code)
+    4. Party size must be a positive number
+    """
+
+        prompt_template = """
+    Required fields: phone_number, party_size, reservation_time, customer_name
+    Optional fields: special_requests
+
+    Handle these date/time formats:
+    - Relative: "tomorrow", "next Tuesday", "this Friday"
+    - Time: "7pm", "7:30 PM", "19:30"
+    - Combined: "tomorrow at 7", "next Friday at 8:30 PM"
+
+    Return in JSON format:
+    {
+        "complete": true/false,
+        "missing_fields": ["field1", "field2"],
+        "error_message": "Specific error message if validation fails, null if complete is true",
+        "details": {
+            "phone_number": "phone number with country code",
+            "party_size": number,
+            "reservation_time": "YYYY-MM-DD HH:MM",
+            "customer_name": "name",
+            "special_requests": "requests or null"
+        }
+    }
+
+    Examples:
+    Message: Make a reservation at +1234567890 for 4 people tomorrow at 7:30 PM under John Doe
+    Response: {
+        "complete": true,
+        "missing_fields": [],
+        "error_message": null,
+        "details": {
+            "phone_number": "+1234567890",
+            "party_size": 4,
+            "reservation_time": "2024-03-08 19:30",
+            "customer_name": "John Doe",
+            "special_requests": null
+        }
+    }
+
+    Message: Make a reservation at +1234567890 for 4 people yesterday at 7:30 PM under John Doe
+    Response: {
+        "complete": false,
+        "missing_fields": [],
+        "error_message": "Reservation time must be in the future. Please specify a future date and time.",
+        "details": {
+            "phone_number": "+1234567890",
+            "party_size": 4,
+            "reservation_time": "2024-03-06 19:30",
+            "customer_name": "John Doe",
+            "special_requests": null
+        }
+    }
+
+    Message: Reserve for 3 people today at 6 under Mike
+    Response: {
+        "complete": false,
+        "missing_fields": ["phone_number"],
+        "error_message": "Missing restaurant phone number. Please provide a contact number for the restaurant.",
+        "details": {
+            "phone_number": null,
+            "party_size": 3,
+            "reservation_time": "2024-03-07 18:00",
+            "customer_name": "Mike",
+            "special_requests": null
+        }
+    }
+    """
+        return datetime_context + prompt_template
+
+    async def parse_reservation_request(
+        self, message: str
+    ) -> tuple[bool, Optional[ReservationDetails], Optional[str]]:
         """
+        Returns (is_complete, reservation_details, missing_fields_message)
+        """
+        response = await self.mistral_client.chat.complete_async(
+            model=MISTRAL_MODEL,
+            messages=[
+                {"role": "system", "content": self._get_prompt()},
+                {"role": "user", "content": f"Message: {message}\nOutput:"},
+            ],
+            response_format={"type": "json_object"},
+        )
+
         try:
-            # This is a simple parser - you might want to use a more sophisticated NLP solution
-            phone_match = re.search(r"\+?\d[\d-]{9,}", message)
-            party_size_match = re.search(r"(\d+)\s+people", message)
-            name_match = re.search(r"under\s+([A-Za-z\s]+)", message)
+            result = json.loads(response.choices[0].message.content)
 
-            if not all([phone_match, party_size_match, name_match]):
-                return None
+            if not result["complete"]:
+                error_msg = result.get("error_message", "Invalid reservation details")
+                missing = ", ".join(result["missing_fields"])
+                if missing:
+                    error_msg = f"{error_msg}\nMissing information: {missing}"
+                return False, None, error_msg
 
-            # For this example, we're assuming the time is for tomorrow at the specified time
-            # You'd want to enhance this with proper datetime parsing
-            time_match = re.search(
-                r"at\s+(\d{1,2}):?(\d{2})?\s*(AM|PM)", message, re.IGNORECASE
+            details = result["details"]
+            reservation = ReservationDetails(
+                restaurant_phone=details["phone_number"],
+                party_size=details["party_size"],
+                reservation_time=datetime.fromisoformat(details["reservation_time"]),
+                customer_name=details["customer_name"],
+                special_requests=details["special_requests"],
             )
-            if not time_match:
-                return None
+            return True, reservation, None
 
-            # Extract special requests if any
-            special_match = re.search(
-                r"special\s+requests?:?\s+([^.]+)", message, re.IGNORECASE
-            )
-
-            return ReservationDetails(
-                restaurant_phone=phone_match.group(0),
-                party_size=int(party_size_match.group(1)),
-                reservation_time=datetime.now(),  # You'd want to properly parse this
-                customer_name=name_match.group(1).strip(),
-                special_requests=special_match.group(1) if special_match else None,
-            )
-
-        except Exception:
-            return None
+        except Exception as e:
+            return False, None, f"Error parsing reservation details: {str(e)}"
 
 
 class RestaurantAgent:
     def __init__(self):
+        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+        self.mistral_client = Mistral(api_key=MISTRAL_API_KEY)
         self.reservation_agent = TwilioReservationAgent()
+        self.active_conversations = {}
 
     async def run(self, message: discord.Message):
-        # Check if this is a reservation request
         if "make a reservation" in message.content.lower():
-            # Parse the reservation request
-            reservation_details = self.reservation_agent.parse_reservation_request(
-                message.content
+            is_complete, details, error_msg = (
+                await self.reservation_agent.parse_reservation_request(message.content)
             )
 
-            if not reservation_details:
-                return (
-                    "I couldn't understand the reservation details. Please use this format:\n"
-                    "Make a reservation at +1234567890 for 4 people tomorrow at 7:30 PM under John Doe"
-                )
+            if not is_complete:
+                return error_msg
 
-            # Make the reservation call
-            return await self.reservation_agent.make_reservation_call(
-                reservation_details
-            )
+            return await self.reservation_agent.make_reservation_call(details)
+
+        # Future enhancement: Handle follow-up messages for incomplete reservations
+        # You could store conversation state in self.active_conversations
+        # and implement a back-and-forth flow to collect missing information
