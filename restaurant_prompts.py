@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -10,6 +10,7 @@ class ReservationDetails:
     reservation_time: datetime
     customer_name: str
     special_requests: Optional[str] = None
+    chat_history: List[str] = None
 
 
 EXTRACT_RESERVATION_DETAILS_PROMPT = """
@@ -121,7 +122,7 @@ def get_restaurant_conversation_prompt(
     3. {"Ask if the time works for them" if is_initial else "Handle their response appropriately"}
     4. If they say no/busy: Ask about 30 minutes earlier/later
     5. If they have questions: Answer professionally
-    6. Keep responses conversational but focused
+    6. Keep responses conversational but focused. Do not repeat yourself unless necessary. Keep responses short.
 
     Remember: YOU are making the reservation, they are answering your call.
     Keep the conversation focused on confirming this reservation.

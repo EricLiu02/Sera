@@ -48,6 +48,7 @@ async def set_reservation(reservation: dict):
         special_requests=reservation.get(
             "special_requests"
         ),  # Using .get() since it's optional
+        chat_history=reservation.get("chat_history", []),
     )
     logger.info(f"Reservation set: {current_reservation}")
     print(f"Reservation set: {current_reservation}")
@@ -72,6 +73,8 @@ async def handle_gather(request: Request):
                 voice="alice",
             )
             return Response(content=str(response), media_type="application/xml")
+
+        current_reservation.chat_history.append(f"User: {speech_result}")
 
         twiml_response = await agent.handle_restaurant_response(
             speech_result, current_reservation

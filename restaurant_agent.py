@@ -124,7 +124,7 @@ class TwilioReservationAgent:
                             "content": [
                                 {
                                     "type": "input_text",
-                                    "text": f"Restaurant employee said: '{speech_input}'",
+                                    "text": "\n".join(reservation.chat_history),
                                 }
                             ],
                         }
@@ -156,6 +156,8 @@ class TwilioReservationAgent:
 
                 ai_response = "".join(full_response)
                 logger.info(f"AI response: '{ai_response}'")
+
+                reservation.chat_history.append("AI Assistant: " + ai_response)
 
                 async with httpx.AsyncClient() as client:
                     await client.post(
@@ -234,6 +236,7 @@ class TwilioReservationAgent:
                     ),
                     customer_name=details["customer_name"],
                     special_requests=details["special_requests"],
+                    chat_history=[],
                 )
                 return True, reservation, None
 
