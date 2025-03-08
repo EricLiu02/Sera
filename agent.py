@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 from restaurant_api import RestaurantAPI
+from typing import Dict, List, Optional
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are a helpful assistant with access to tools for finding restaurant information. 
@@ -45,9 +46,12 @@ class MistralAgent:
             model=MISTRAL_MODEL
         )
         
+        # State tracking for restaurant queries
+        self.last_restaurant_query: Dict[int, Dict] = {}  # channel_id -> query info
+        
         # Define tools using the @tool decorator
         @tool
-        def search_restaurants(query: str, location: str = None) -> str:
+        def search_restaurants(query: str, location: str = None, start_index: int = 0) -> str:
             """Use this tool for ANY restaurant-related queries. This includes:
             - Finding restaurants by cuisine, name, or type
             - Getting restaurant information and reviews
@@ -56,6 +60,7 @@ class MistralAgent:
             Args:
                 query: Type of restaurant, cuisine, or specific restaurant name (e.g., 'Italian', 'pizza', 'Blue Bottle Coffee')
                 location: Location to search in (e.g., 'San Francisco', 'Stanford', 'Palo Alto'). If not provided, will search generally.
+                start_index: Index to start from when returning results (for pagination)
             
             Returns:
                 Concise information about multiple restaurants including basic info and review summaries.
@@ -65,17 +70,26 @@ class MistralAgent:
             if not restaurants:
                 return f"No restaurants found matching '{query}'" + (f" in {location}" if location else "")
             
-            response_parts = ["Here are the top recommendations based on your request:"]
+            # Calculate the range of restaurants to show
+            total_restaurants = len(restaurants)
+            start = start_index
+            end = min(start + 3, total_restaurants)
             
-            # Process up to 3 restaurants
-            num_restaurants = min(3, len(restaurants))
+            if start >= total_restaurants:
+                return "No more restaurants to show."
             
-            for i in range(num_restaurants):
+            response_parts = []
+            if start == 0:
+                response_parts.append("Here are the top recommendations based on your request:")
+            else:
+                response_parts.append(f"Here are more restaurants (showing {start+1}-{end} of {total_restaurants}):")
+            
+            for i in range(start, end):
                 restaurant = restaurants[i]
                 place_id = restaurant['place_id']
                 
                 # Add a separator between restaurants
-                if i > 0:
+                if i > start:
                     response_parts.append("\n" + "-"*30 + "\n")
                 
                 # Get details and reviews
@@ -126,24 +140,43 @@ class MistralAgent:
                     response_parts.append("\nNo reviews available.")
             
             # Add information about additional results if any
-            remaining_count = len(restaurants) - num_restaurants
+            remaining_count = total_restaurants - end
             if remaining_count > 0:
                 response_parts.append(f"\n\nThere are {remaining_count} more restaurants matching your query. Would you like to see more options?")
             
             return "\n".join(response_parts)
 
-        #TODO: Add more tools when we merge code into main
         # Bind the tools to the LLM
         self.tools = [search_restaurants]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     async def run(self, message: discord.Message):
         try:
-            content = message.content.strip()
+            content = message.content.strip().lower()
             print(f"Processing message: {content}")  # Debug logging
             
-            # Check if it's a restaurant query
-            if any(keyword in content.lower() for keyword in ['restaurant', 'food', 'eat', 'dining']):
+            # Check if this is a request for more restaurants
+            if any(phrase in content for phrase in ['yes', 'show more', 'more options', 'next']):
+                # Check if we have a previous query for this channel
+                last_query = self.last_restaurant_query.get(message.channel.id)
+                if last_query:
+                    print("Continuing previous restaurant search")  # Debug logging
+                    # Calculate next start index
+                    start_index = last_query.get('last_index', 0) + 3
+                    
+                    # Update the last index
+                    self.last_restaurant_query[message.channel.id]['last_index'] = start_index
+                    
+                    # Get more results
+                    tool_output = self.tools[0].invoke({
+                        "query": last_query['query'],
+                        "location": last_query['location'],
+                        "start_index": start_index
+                    })
+                    return tool_output
+            
+            # Check if it's a new restaurant query
+            if any(keyword in content for keyword in ['restaurant', 'food', 'eat', 'dining']):
                 print("Detected restaurant query, using search_restaurants tool directly")  # Debug logging
                 
                 # Parse query and location from the message
@@ -156,16 +189,16 @@ class MistralAgent:
                     location = location_matches[0].strip()
                 
                 # Extract query (type of restaurant or cuisine)
-                if 'italian' in content.lower():
+                if 'italian' in content:
                     query = 'Italian'
-                elif 'chinese' in content.lower():
+                elif 'chinese' in content:
                     query = 'Chinese'
-                elif 'japanese' in content.lower():
+                elif 'japanese' in content:
                     query = 'Japanese'
                 # Add more cuisine types as needed
                 
                 # If no specific cuisine was found but "restaurant" is in the query
-                if not query and 'restaurant' in content.lower():
+                if not query and 'restaurant' in content:
                     # Extract words before "restaurant"
                     matches = re.findall(r'(\w+)\s+restaurant', content, re.IGNORECASE)
                     if matches:
@@ -177,10 +210,18 @@ class MistralAgent:
                 
                 print(f"Extracted query: {query}, location: {location}")  # Debug logging
                 
+                # Store the query information for this channel
+                self.last_restaurant_query[message.channel.id] = {
+                    'query': query,
+                    'location': location,
+                    'last_index': 0
+                }
+                
                 # Directly invoke the search_restaurants tool
                 tool_output = self.tools[0].invoke({
                     "query": query,
-                    "location": location
+                    "location": location,
+                    "start_index": 0
                 })
                 
                 # Split response into chunks if it's too long
