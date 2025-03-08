@@ -75,5 +75,19 @@ async def ping(ctx, *, arg=None):
         await ctx.send(f"Pong! Your argument was {arg}")
 
 
+@bot.command(name="restaurant", help="Search for restaurants. Usage: !restaurant [query] in [location]")
+async def restaurant_search(ctx, *, query=None):
+    if query is None:
+        await ctx.send("Please provide a restaurant search query. Example: `!restaurant pizza in San Francisco`")
+        return
+    
+    try:
+        # Process the query through the agent's restaurant API
+        response = await agent.run(discord.Message(content=query, author=ctx.author))
+        await ctx.send(response)
+    except Exception as e:
+        await ctx.send(f"Error searching for restaurants: {str(e)}")
+
+
 # Start the bot, connecting it to the gateway
 bot.run(token)
