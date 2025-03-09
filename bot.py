@@ -80,7 +80,7 @@ async def restaurant_search(ctx, *, query=None):
     if query is None:
         await ctx.send("Please provide a restaurant search query. Example: `!restaurant pizza in San Francisco`")
         return
-    
+
     try:
         # Process the query through the agent's restaurant API
         response = await agent.run(discord.Message(content=query, author=ctx.author))
