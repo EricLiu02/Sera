@@ -83,7 +83,7 @@ class TwilioReservationAgent:
         return obj
 
     def reservation_to_dict(self, reservation: ReservationDetails) -> dict:
-        data = asdict(reservation)
+        data = dict(reservation)
         # Convert datetime to string
         if data.get("reservation_time"):
             data["reservation_time"] = self.datetime_to_str(data["reservation_time"])
