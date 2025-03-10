@@ -12,8 +12,11 @@ from openai import AsyncOpenAI
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import httpx
+from langchain_core.tools import BaseTool
+from pydantic import PrivateAttr
 
-from restaurant_prompts import (
+
+from tools.prompts.reservation_prompts import (
     ReservationDetails,
     get_extract_reservation_details_prompt,
     get_restaurant_conversation_prompt,
@@ -42,7 +45,7 @@ class TwilioReservationAgent:
             )
 
         self.client = Client(self.account_sid, self.auth_token)
-        self.mistral_client = Mistral(api_key=MISTRAL_API_KEY)
+        self._mistal_client = Mistral(api_key=MISTRAL_API_KEY)
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self.active_conversations = {}
         self.conversations = {}
@@ -201,7 +204,7 @@ class TwilioReservationAgent:
         """
         Returns (is_complete, reservation_details, missing_fields_message)
         """
-        response = await self.mistral_client.chat.complete_async(
+        response = await self._mistal_client.chat.complete_async(
             model=MISTRAL_MODEL,
             messages=[
                 {"role": "system", "content": get_extract_reservation_details_prompt()},
@@ -287,10 +290,18 @@ class TwilioReservationAgent:
             return f"❌ An unexpected error occurred: {str(e)}"
 
 
-class RestaurantAgent:
-    def __init__(self):
+class RestaurantAgent(BaseTool):
+    name: str = "restaurant_reservation"
+    description: str = "A tool for making restaurant reservations through phone calls"
+
+    _mistal_client: Mistral = PrivateAttr()
+    reservation_agent: TwilioReservationAgent = None
+    active_conversations: Dict[str, ReservationDetails] = {}
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-        self.mistral_client = Mistral(api_key=MISTRAL_API_KEY)
+        self._mistal_client = Mistral(api_key=MISTRAL_API_KEY)
         self.reservation_agent = TwilioReservationAgent()
         self.active_conversations = {}
 
@@ -304,3 +315,13 @@ class RestaurantAgent:
                 return error_msg
 
             return await self.reservation_agent.make_reservation_call(details)
+
+    async def _arun(self, message: str):
+        return await self.run(message)
+
+    def _run(self, message: str):
+        """
+        Synchronous version of the reservation agent.
+        This would need asyncio.run() or similar to execute the async version.
+        """
+        raise NotImplementedError("Please use the async version of this tool")

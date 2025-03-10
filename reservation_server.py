@@ -8,7 +8,7 @@ from pyngrok import ngrok, conf
 from twilio.twiml.voice_response import VoiceResponse
 import uvicorn
 
-from restaurant_agent import TwilioReservationAgent, ReservationDetails
+from tools.reservation_agent import TwilioReservationAgent, ReservationDetails
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,16 +40,17 @@ current_reservation = None
 @app.post("/set_reservation")
 async def set_reservation(reservation: dict):
     global current_reservation
-    current_reservation = ReservationDetails(
-        party_size=reservation["party_size"],
-        reservation_time=datetime.fromisoformat(reservation["reservation_time"]),
-        customer_name=reservation["customer_name"],
-        restaurant_phone=reservation["restaurant_phone"],
-        special_requests=reservation.get(
-            "special_requests"
-        ),  # Using .get() since it's optional
-        chat_history=reservation.get("chat_history", []),
-    )
+    current_reservation = ReservationDetails(**reservation)
+    # current_reservation = ReservationDetails(
+    #     party_size=reservation["party_size"],
+    #     reservation_time=datetime.fromisoformat(reservation["reservation_time"]),
+    #     customer_name=reservation["customer_name"],
+    #     restaurant_phone=reservation["restaurant_phone"],
+    #     special_requests=reservation.get(
+    #         "special_requests"
+    #     ),  # Using .get() since it's optional
+    #     chat_history=reservation.get("chat_history", []),
+    # )
     logger.info(f"Reservation set: {current_reservation}")
     print(f"Reservation set: {current_reservation}")
     return {"status": "success"}

@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import List, Optional
 from dataclasses import dataclass
+from pydantic import BaseModel
 
 
-@dataclass
-class ReservationDetails:
+class ReservationDetails(BaseModel):
     restaurant_phone: str
     party_size: int
     reservation_time: datetime
