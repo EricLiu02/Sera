@@ -5,28 +5,48 @@ from PIL import Image
 import ast
 import io
 from dotenv import load_dotenv
-from prompts.split_bill_prompts import INITIAL_PROMPT, FINAL_PROMPT
+from tools.prompts.split_bill_prompts import INITIAL_PROMPT, FINAL_PROMPT
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
+from langchain_core.tools import BaseTool
+from typing import Optional
+
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForToolRun, CallbackManagerForToolRun)
+from langchain_core.tools import BaseTool, ToolException
+from langchain_core.tools.base import ArgsSchema
+from pydantic import BaseModel, Field, PrivateAttr
+
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
-class SplitBill():
+class SplitBillInput(BaseModel):
+    user_instructions: int = Field(description="User instructions")
+    image: str = Field(description="Base64 encoded image of the receipt")
+
+
+class SplitBill(BaseTool):
     """
     A class to process and split a bill based on a user prompt and an image of the receipt.
     """
+    _agent: ChatOpenAI = PrivateAttr()
+    name: str = "split_bill"
+    description: str = "Useful for when the user wants to split the bill/check for the restaurant."
+    args_schema: Optional[ArgsSchema] = SplitBillInput
+    return_direct: bool = True
 
-    def __init__(self):
+    def __init__(self, **data):
         """
         Initializes the SplitBill class with an OpenAI-powered agent for processing.
         """
-        self.agent = ChatOpenAI(
+        super().__init__(**data)
+        self._agent = ChatOpenAI(
             openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
 
-    async def run(self, user_prompt: str, image: Image.Image) -> str:
+    async def _arun(self, user_instructions: str, image: str) -> str:
         """
         Processes the given receipt image and user prompt to return a formatted bill split.
 
@@ -41,7 +61,7 @@ class SplitBill():
         image_raw_text = await self.__image_to_raw_text(image)
 
         # Construct the prompt using system instructions, user prompt, and OCR output
-        prompt = f"{INITIAL_PROMPT} {user_prompt} {image_raw_text}"
+        prompt = f"{INITIAL_PROMPT} {user_instructions} {image_raw_text}"
         initial_response_text = await self.agent.ainvoke(prompt)
 
         # Parse response to extract the breakdown
@@ -60,7 +80,14 @@ class SplitBill():
         final_response_text = await self.agent.ainvoke(final_prompt)
         return final_response_text.content
 
-    async def __image_to_raw_text(self, image: Image.Image) -> str:
+    def _run(self, user_instructions: str, image: str) -> str:
+        """
+        Synchronous version of the bill splitting functionality.
+        This would need asyncio.run() or similar to execute the async version.
+        """
+        raise NotImplementedError("Please use the async version of this tool")
+
+    async def __image_to_raw_text(self, image: str) -> str:
         """
         Extracts raw text from the given receipt image using OpenAI's vision capabilities.
 
@@ -70,15 +97,16 @@ class SplitBill():
         Returns:
             str: The extracted text from the image.
         """
-        buffered = io.BytesIO()
-        image.save(buffered, format='JPEG')
-        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        image_url = ""
+        if not image.startswith('data:image'):
+            image_url = f"data:image/jpeg;base64,{image}"
+        else:
+            image_url = image
 
         response = await self.agent.ainvoke([
             HumanMessage(content=[
                 {"type": "text", "text": "Extract the text from this receipt image."},
-                {"type": "image_url", "image_url": {
-                    "url": f"data:image/jpeg;base64,{img_base64}"}}
+                {"type": "image_url", "image_url": {"url": image_url}}
             ])
         ])
         return response.content
@@ -93,7 +121,10 @@ class SplitBill():
         Returns:
             Dict[str, any]: The parsed breakdown of the receipt items.
         """
-        return ast.literal_eval(raw_text)
+        try:
+            return ast.literal_eval(raw_text)
+        except (SyntaxError, ValueError) as e:
+            raise ToolException(f"Failed to parse breakdown: {str(e)}")
 
     def __perform_split(self, breakdown: Dict[str, any]) -> Dict[str, float]:
         """
@@ -152,7 +183,15 @@ if __name__ == "__main__":
         ]
         bill = test_bills[2]
         split_bill = SplitBill()
-        result = await split_bill.run(user_prompt=bill["prompt"], image=Image.open(bill["filename"]))
+
+        # Convert image
+        image = Image.open(bill["filename"])
+        buffered = io.BytesIO()
+        image.save(buffered, format='JPEG')
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # Call function
+        result = await split_bill.ainvoke(user_instructions=bill["prompt"], image=img_base64)
         print(result)
 
     asyncio.run(main())

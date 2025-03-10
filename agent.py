@@ -5,8 +5,14 @@ import discord
 from langchain_core.tools import tool
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
-from restaurant_api import RestaurantAPI
+
+# Import Tools
+from tools.search_restaurants import SearchRestaurants
+from tools.split_bill import SplitBill
+
 from typing import Dict, List, Optional
+
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are a helpful assistant with access to a search_restaurants tool for finding restaurant information.
@@ -50,21 +56,22 @@ Provide a very concise 2-3 sentence summary that captures:
 
 Keep your summary brief, direct, and informative."""
 
+
 class MistralAgent:
     def __init__(self):
-        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-        self.restaurant_api = RestaurantAPI()
+        self.restaurant_api = SearchRestaurants()
         self.client = Mistral(api_key=MISTRAL_API_KEY)
-        
+
         # Initialize the LangChain Mistral chat model
         self.llm = ChatMistralAI(
             api_key=MISTRAL_API_KEY,
             model=MISTRAL_MODEL
         )
-        
+
         # State tracking for restaurant queries
-        self.last_restaurant_query: Dict[int, Dict] = {}  # channel_id -> query info
-        
+        # channel_id -> query info
+        self.last_restaurant_query: Dict[int, Dict] = {}
+
         # Define tools using the @tool decorator
         @tool
         def search_restaurants(query: str, location: str = None, start_index: int = 0) -> str:
@@ -72,104 +79,114 @@ class MistralAgent:
             - Finding restaurants by cuisine, name, or type
             - Getting restaurant information and reviews
             - Finding dining options in specific locations
-            
+
             Args:
                 query: Type of restaurant, cuisine, or specific restaurant name (e.g., 'Italian', 'pizza', 'Blue Bottle Coffee')
                 location: Location to search in (e.g., 'San Francisco', 'Stanford', 'Palo Alto'). If not provided, will search generally.
                 start_index: Index to start from when returning results (for pagination)
-            
+
             Returns:
                 Concise information about multiple restaurants including basic info and review summaries.
             """
             # Search for restaurants
-            restaurants = self.restaurant_api.search_restaurant(query, location)
+            restaurants = self.restaurant_api.search_restaurant(
+                query, location)
             if not restaurants:
                 return f"I couldn't find any restaurants matching your search. Would you like to try a different query or location?"
-            
+
             # Calculate the range of restaurants to show
             total_restaurants = len(restaurants)
             start = start_index
             end = min(start + 3, total_restaurants)
-            
+
             if start >= total_restaurants:
                 return "I've shown all available restaurants for this search. Would you like to try a different query?"
-            
+
             response_parts = []
-            
+
             # Let the LLM handle the introduction text through the system prompt
             if start == 0:
                 response_parts.append("Here are my recommendations:")
             else:
                 response_parts.append("Here are more recommendations:")
-            
+
             for i in range(start, end):
                 restaurant = restaurants[i]
                 place_id = restaurant['place_id']
-                
+
                 # Add a separator between restaurants
                 if i > start:
                     response_parts.append("\n" + "-"*30 + "\n")
-                
+
                 # Get details and reviews
-                restaurant_details = self.restaurant_api.get_restaurant_details(place_id)
+                restaurant_details = self.restaurant_api.get_restaurant_details(
+                    place_id)
                 reviews = self.restaurant_api.get_restaurant_reviews(place_id)
-                
+
                 # Format basic restaurant information
                 info = []
-                info.append(f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
-                
+                info.append(
+                    f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
+
                 rating_parts = []
                 if 'rating' in restaurant_details:
                     stars = "⭐" * int(restaurant_details.get('rating', 0))
-                    rating_parts.append(f"{restaurant_details.get('rating')} {stars}")
+                    rating_parts.append(
+                        f"{restaurant_details.get('rating')} {stars}")
                 if 'price_level' in restaurant_details:
-                    price_level = "💰" * restaurant_details.get('price_level', 0)
+                    price_level = "💰" * \
+                        restaurant_details.get('price_level', 0)
                     rating_parts.append(price_level)
                 if rating_parts:
                     info.append(" | ".join(rating_parts))
-                
+
                 if 'formatted_address' in restaurant_details:
-                    info.append(f"📍 {restaurant_details.get('formatted_address')}")
-                
+                    info.append(
+                        f"📍 {restaurant_details.get('formatted_address')}")
+
                 response_parts.append("\n".join(info))
-                
+
                 # Generate AI summary of reviews if available
                 if reviews:
-                    reviews_text = self.restaurant_api.prepare_reviews_for_summary(reviews)
-                    
+                    reviews_text = self.restaurant_api.prepare_reviews_for_summary(
+                        reviews)
+
                     # Generate summary using Mistral AI
                     summary_messages = [
                         {"role": "system", "content": REVIEW_SUMMARY_PROMPT},
                         {"role": "user", "content": reviews_text},
                     ]
-                    
+
                     summary_response = self.client.chat.complete(
                         model=MISTRAL_MODEL,
                         messages=summary_messages,
                     )
-                    
-                    response_parts.append(f"\n💬 {summary_response.choices[0].message.content}")
+
+                    response_parts.append(
+                        f"\n💬 {summary_response.choices[0].message.content}")
                 else:
                     response_parts.append("\nNo reviews available yet.")
-            
+
             # Add information about additional results
             remaining_count = total_restaurants - end
             if remaining_count > 0:
-                response_parts.append("\nWould you like to see more restaurant recommendations?")
+                response_parts.append(
+                    "\nWould you like to see more restaurant recommendations?")
             else:
-                response_parts.append("\nThose are all the restaurants I found. Would you like to try a different search?")
-            
+                response_parts.append(
+                    "\nThose are all the restaurants I found. Would you like to try a different search?")
+
             return "\n".join(response_parts)
 
         # Bind the tools to the LLM
-        self.tools = [search_restaurants]
+        self.tools = [search_restaurants, SplitBill()]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     async def run(self, message: discord.Message):
         try:
             # Create messages with context about previous searches if available
             messages = [SystemMessage(content=SYSTEM_PROMPT)]
-            
+
             # Add context about previous search if it exists
             last_query = self.last_restaurant_query.get(message.channel.id)
             if last_query:
@@ -181,48 +198,49 @@ class MistralAgent:
                     'total_results': len(self.restaurant_api.search_restaurant(last_query['query'], last_query['location']))
                 }
                 messages.append(SystemMessage(content=str(context)))
-            
+
             messages.append(HumanMessage(content=message.content))
-            
+
             # Let LangChain handle all the query interpretation
             ai_msg = await self.llm_with_tools.ainvoke(messages)
             if not ai_msg:
                 return "I apologize, but I couldn't process that request. Could you please try rephrasing it?"
-                
+
             messages.append(ai_msg)
-            
+
             # Check for tool calls first
             if hasattr(ai_msg, 'tool_calls') and ai_msg.tool_calls:
                 for tool_call in ai_msg.tool_calls:
                     tool_name = tool_call["name"].lower()
                     tool_args = tool_call["args"]
-                    
+
                     # Execute the search_restaurants tool
                     if tool_name == "search_restaurants":
                         # Validate tool arguments
                         if not tool_args.get('query') and (not last_query or not last_query.get('query')):
                             return "I need to know what kind of restaurant you're looking for. Could you please specify?"
-                        
+
                         # Store or update query information for pagination
                         self.last_restaurant_query[message.channel.id] = {
                             'query': tool_args.get('query', last_query['query'] if last_query else None),
                             'location': tool_args.get('location', last_query['location'] if last_query else None),
                             'last_index': tool_args.get('start_index', 0)
                         }
-                        
+
                         try:
                             # Get restaurant recommendations
                             tool_output = self.tools[0].invoke(tool_args)
                             if not tool_output:
                                 return "I couldn't find any restaurants matching your criteria. Would you like to try a different search?"
-                            
+
                             # If the response is too long, truncate each restaurant's review summary
                             if len(tool_output) > 1900:
-                                entries = tool_output.split("\n" + "-"*30 + "\n")
-                                
+                                entries = tool_output.split(
+                                    "\n" + "-"*30 + "\n")
+
                                 # Keep the header
                                 formatted_entries = [entries[0]]
-                                
+
                                 # Process each restaurant entry
                                 for entry in entries[1:]:
                                     # Find the review section (after the 💬 emoji)
@@ -231,28 +249,34 @@ class MistralAgent:
                                         # Keep the restaurant info and truncate the review
                                         restaurant_info = parts[0]
                                         review = parts[1]
-                                        truncated_review = review[:200] + "..." if len(review) > 200 else review
-                                        formatted_entries.append(f"{restaurant_info}\n💬 {truncated_review}")
+                                        truncated_review = review[:200] + \
+                                            "..." if len(
+                                                review) > 200 else review
+                                        formatted_entries.append(
+                                            f"{restaurant_info}\n💬 {truncated_review}")
                                     else:
                                         formatted_entries.append(entry)
-                                
+
                                 # Join everything back together with separators
-                                tool_output = "\n" + "-"*30 + "\n".join(formatted_entries)
-                                
+                                tool_output = "\n" + "-"*30 + \
+                                    "\n".join(formatted_entries)
+
                                 # If still too long, truncate the whole message
                                 if len(tool_output) > 1900:
-                                    tool_output = tool_output[:1850] + "\n\n[Some content truncated due to length]"
-                            
+                                    tool_output = tool_output[:1850] + \
+                                        "\n\n[Some content truncated due to length]"
+
                             return tool_output
-                            
+
                         except Exception as e:
-                            print(f"Error processing restaurant search: {str(e)}")
+                            print(
+                                f"Error processing restaurant search: {str(e)}")
                             return "I encountered an error while searching for restaurants. Would you like to try again?"
-            
+
             # If no tool calls, check for content in AI response
             if not ai_msg.content or not ai_msg.content.strip():
                 return "I'm not sure how to help with that. Could you please rephrase your question?"
-            
+
             return ai_msg.content
 
         except Exception as e:
