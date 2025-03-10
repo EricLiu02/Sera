@@ -5,6 +5,7 @@ import discord
 from langchain_core.tools import tool
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
+from utils import extract_image_base64
 
 # Import Tools
 from tools.search_restaurants import SearchRestaurants
@@ -46,7 +47,10 @@ When using the tool, extract:
 
 For non-restaurant queries, respond normally without using the tool.
 
-Remember to maintain context for pagination when users ask to see more options."""
+Remember to maintain context for pagination when users ask to see more options.
+
+If the user asks to split a bill, use the split_bill tool. Assume that the image of the bill will be
+provided to the tool"""
 
 REVIEW_SUMMARY_PROMPT = """You are a helpful assistant specializing in summarizing restaurant reviews.
 Provide a very concise 2-3 sentence summary that captures:
@@ -214,6 +218,20 @@ class MistralAgent:
                     tool_name = tool_call["name"].lower()
                     tool_args = tool_call["args"]
 
+                    if tool_name == "split_bill":
+                        try:
+                            base64_image = await extract_image_base64(message)
+                        except Exception as e:
+                            return str(e)
+
+                        # Use provided user instructions if available in tool_args, else fall back to message content
+                        user_instructions = tool_args.get(
+                            "user_instructions", message.content)
+
+                        split_bill_tool = next(
+                            (t for t in self.tools if t.name.lower() == "split_bill"), None)
+
+                        return await split_bill_tool.ainvoke({"user_instructions": user_instructions, "image": base64_image})
                     # Execute the search_restaurants tool
                     if tool_name == "search_restaurants":
                         # Validate tool arguments

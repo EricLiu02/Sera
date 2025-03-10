@@ -24,7 +24,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 class SplitBillInput(BaseModel):
-    user_instructions: int = Field(description="User instructions")
+    user_instructions: str = Field(
+        description="Instructions the user provided in their message in order to split the bill")
     image: str = Field(description="Base64 encoded image of the receipt")
 
 
@@ -59,14 +60,14 @@ class SplitBill(BaseTool):
         """
         # Extract text from image using OpenAI Vision API
         image_raw_text = await self.__image_to_raw_text(image)
-
         # Construct the prompt using system instructions, user prompt, and OCR output
         prompt = f"{INITIAL_PROMPT} {user_instructions} {image_raw_text}"
-        initial_response_text = await self.agent.ainvoke(prompt)
+        initial_response_text = await self._agent.ainvoke(prompt)
 
         # Parse response to extract the breakdown
         breakdown_dict = self.__raw_text_to_breakdown(
             initial_response_text.content)
+
         split = self.__perform_split(breakdown_dict)
 
         # Ask LLM to generate a nicely formatted answer to the user
@@ -77,7 +78,7 @@ class SplitBill(BaseTool):
             Split: 
             {split}
         """
-        final_response_text = await self.agent.ainvoke(final_prompt)
+        final_response_text = await self._agent.ainvoke(final_prompt)
         return final_response_text.content
 
     def _run(self, user_instructions: str, image: str) -> str:
@@ -103,7 +104,7 @@ class SplitBill(BaseTool):
         else:
             image_url = image
 
-        response = await self.agent.ainvoke([
+        response = await self._agent.ainvoke([
             HumanMessage(content=[
                 {"type": "text", "text": "Extract the text from this receipt image."},
                 {"type": "image_url", "image_url": {"url": image_url}}

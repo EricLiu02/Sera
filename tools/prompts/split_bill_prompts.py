@@ -25,8 +25,8 @@ FINAL_PROMPT = """
 Generate a concise, human-readable breakdown in clear and formatted text.
 
 Example Output:
-**Sherry** pays **$13** for Burguer, Cheese, and shared tax/tip.  
-**You** pay **$48** for Burguer, Egg Roll, and shared tax/tip.  
+**Sherry** pays **$13.00** for Burguer, Cheese, and shared tax/tip.  
+**You** pay **$48.00** for Burguer, Egg Roll, and shared tax/tip.  
 **Total Bill:** *$31.00*.
 Follow this format strictly. Do not add explanations or extra text.
 """
