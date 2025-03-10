@@ -50,8 +50,13 @@ class TwilioReservationAgent:
         self.active_conversations = {}
         self.conversations = {}
 
-        with open("webhook_url.txt", "r") as f:
-            self.webhook_base_url = f.read().strip()
+        try:
+            with open("webhook_url.txt", "r") as f:
+                self.webhook_base_url = f.read().strip()
+        except FileNotFoundError:
+            raise ValueError(
+                "Webhook URL file not found - must run reservation_server.py first"
+            )
 
     def _format_phone_number(self, phone: str) -> str:
         """Formats phone number to E.164 format, assuming US if no country code"""

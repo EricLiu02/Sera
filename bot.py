@@ -4,7 +4,7 @@ import logging
 
 from discord.ext import commands
 from dotenv import load_dotenv
-from tools.reservation_agent import RestaurantAgent
+from agent import MistralAgent
 
 PREFIX = "!"
 
@@ -20,7 +20,7 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # Import the Mistral agent from the agent.py file
-agent = RestaurantAgent()
+agent = MistralAgent()
 
 
 # Get the token from the environment variables
@@ -75,10 +75,15 @@ async def ping(ctx, *, arg=None):
         await ctx.send(f"Pong! Your argument was {arg}")
 
 
-@bot.command(name="restaurant", help="Search for restaurants. Usage: !restaurant [query] in [location]")
+@bot.command(
+    name="restaurant",
+    help="Search for restaurants. Usage: !restaurant [query] in [location]",
+)
 async def restaurant_search(ctx, *, query=None):
     if query is None:
-        await ctx.send("Please provide a restaurant search query. Example: `!restaurant pizza in San Francisco`")
+        await ctx.send(
+            "Please provide a restaurant search query. Example: `!restaurant pizza in San Francisco`"
+        )
         return
 
     try:
