@@ -3,7 +3,19 @@ import googlemaps
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from langchain_core.tools import BaseTool
+from mistralai import Mistral
+from pydantic import Field
 
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL = "mistral-large-latest"
+
+REVIEW_SUMMARY_PROMPT = """You are a helpful assistant specializing in summarizing restaurant reviews.
+Provide a very concise 2-3 sentence summary that captures:
+1. Overall sentiment and most mentioned positives
+2. Any notable criticisms or areas for improvement
+3. 1-2 most recommended dishes (if mentioned)
+
+Keep your summary brief, direct, and informative."""
 
 class SearchRestaurants:
     """
@@ -192,18 +204,95 @@ class SearchRestaurantsTool(BaseTool):
     description: str = """Use this tool for ANY restaurant-related queries. This includes:
             - Finding restaurants by cuisine, name, or type
             - Getting restaurant information and reviews
-            - Finding dining options in specific locations
-
-            Args:
-                query: Type of restaurant, cuisine, or specific restaurant name (e.g., 'Italian', 'pizza', 'Blue Bottle Coffee')
-                location: Location to search in (e.g., 'San Francisco', 'Stanford', 'Palo Alto'). If not provided, will search generally.
-                start_index: Index to start from when returning results (for pagination)
-
-            Returns:
-                Concise information about multiple restaurants including basic info and review summaries.
-            """
+            - Finding dining options in specific locations"""
+    restaurant_api: SearchRestaurants = Field(default_factory=SearchRestaurants)
+    client: Mistral = Field(default_factory=lambda: Mistral(api_key=MISTRAL_API_KEY))
 
     def _run(
         self, query: str, location: Optional[str] = None, start_index: int = 0
     ) -> str:
-        pass
+        # Search for restaurants
+        restaurants = self.restaurant_api.search_restaurant(query, location)
+        if not restaurants:
+            return f"I couldn't find any restaurants matching your search. Would you like to try a different query or location?"
+
+        # Calculate the range of restaurants to show
+        total_restaurants = len(restaurants)
+        start = start_index
+        end = min(start + 3, total_restaurants)
+
+        if start >= total_restaurants:
+            return "I've shown all available restaurants for this search. Would you like to try a different query?"
+
+        response_parts = []
+
+        # Let the LLM handle the introduction text through the system prompt
+        if start == 0:
+            response_parts.append("Here are my recommendations:")
+        else:
+            response_parts.append("Here are more recommendations:")
+
+        for i in range(start, end):
+            restaurant = restaurants[i]
+            place_id = restaurant["place_id"]
+
+            # Add a separator between restaurants
+            if i > start:
+                response_parts.append("\n" + "-" * 30 + "\n")
+
+            # Get details and reviews
+            restaurant_details = self.restaurant_api.get_restaurant_details(place_id)
+            reviews = self.restaurant_api.get_restaurant_reviews(place_id)
+
+            # Format basic restaurant information
+            info = []
+            info.append(f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
+
+            rating_parts = []
+            if "rating" in restaurant_details:
+                stars = "⭐" * int(restaurant_details.get("rating", 0))
+                rating_parts.append(f"{restaurant_details.get('rating')} {stars}")
+            if "price_level" in restaurant_details:
+                price_level = "💰" * restaurant_details.get("price_level", 0)
+                rating_parts.append(price_level)
+            if rating_parts:
+                info.append(" | ".join(rating_parts))
+
+            if "formatted_address" in restaurant_details:
+                info.append(f"📍 {restaurant_details.get('formatted_address')}")
+
+            response_parts.append("\n".join(info))
+
+            # Generate AI summary of reviews if available
+            if reviews:
+                reviews_text = self.restaurant_api.prepare_reviews_for_summary(reviews)
+
+                # Generate summary using Mistral AI
+                summary_messages = [
+                    {"role": "system", "content": REVIEW_SUMMARY_PROMPT},
+                    {"role": "user", "content": reviews_text},
+                ]
+
+                summary_response = self.client.chat.complete(
+                    model=MISTRAL_MODEL,
+                    messages=summary_messages,
+                )
+
+                response_parts.append(f"\n💬 {summary_response.choices[0].message.content}")
+            else:
+                response_parts.append("\nNo reviews available yet.")
+
+        # Add information about additional results
+        remaining_count = total_restaurants - end
+        if remaining_count > 0:
+            response_parts.append("\nWould you like to see more restaurant recommendations?")
+        else:
+            response_parts.append("\nThose are all the restaurants I found. Would you like to try a different search?")
+
+        return "\n".join(response_parts)
+
+    async def _arun(
+        self, query: str, location: Optional[str] = None, start_index: int = 0
+    ) -> str:
+        """Async implementation of the tool"""
+        return self._run(query, location, start_index)

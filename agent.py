@@ -2,13 +2,12 @@ import os
 import re
 from mistralai import Mistral
 import discord
-from langchain_core.tools import tool
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 from utils import extract_image_base64
 
 # Import Tools
-from tools.search_restaurants import SearchRestaurants
+from tools.search_restaurants import SearchRestaurantsTool
 from tools.split_bill import SplitBill
 from tools.reservation_agent import ReservationAgent
 
@@ -64,132 +63,21 @@ Keep your summary brief, direct, and informative."""
 
 class MistralAgent:
     def __init__(self):
-        self.restaurant_api = SearchRestaurants()
-        self.client = Mistral(api_key=MISTRAL_API_KEY)
-
         # Initialize the LangChain Mistral chat model
         self.llm = ChatMistralAI(api_key=MISTRAL_API_KEY, model=MISTRAL_MODEL)
+        
+        # Initialize restaurant API for pagination context
+        self.restaurant_api = SearchRestaurantsTool()
 
         # State tracking for restaurant queries
         # channel_id -> query info
         self.last_restaurant_query: Dict[int, Dict] = {}
 
-        # Define tools using the @tool decorator
-        @tool
-        def search_restaurants(
-            query: str, location: str = None, start_index: int = 0
-        ) -> str:
-            """Use this tool for ANY restaurant-related queries. This includes:
-            - Finding restaurants by cuisine, name, or type
-            - Getting restaurant information and reviews
-            - Finding dining options in specific locations
-
-            Args:
-                query: Type of restaurant, cuisine, or specific restaurant name (e.g., 'Italian', 'pizza', 'Blue Bottle Coffee')
-                location: Location to search in (e.g., 'San Francisco', 'Stanford', 'Palo Alto'). If not provided, will search generally.
-                start_index: Index to start from when returning results (for pagination)
-
-            Returns:
-                Concise information about multiple restaurants including basic info and review summaries.
-            """
-            # Search for restaurants
-            restaurants = self.restaurant_api.search_restaurant(query, location)
-            if not restaurants:
-                return f"I couldn't find any restaurants matching your search. Would you like to try a different query or location?"
-
-            # Calculate the range of restaurants to show
-            total_restaurants = len(restaurants)
-            start = start_index
-            end = min(start + 3, total_restaurants)
-
-            if start >= total_restaurants:
-                return "I've shown all available restaurants for this search. Would you like to try a different query?"
-
-            response_parts = []
-
-            # Let the LLM handle the introduction text through the system prompt
-            if start == 0:
-                response_parts.append("Here are my recommendations:")
-            else:
-                response_parts.append("Here are more recommendations:")
-
-            for i in range(start, end):
-                restaurant = restaurants[i]
-                place_id = restaurant["place_id"]
-
-                # Add a separator between restaurants
-                if i > start:
-                    response_parts.append("\n" + "-" * 30 + "\n")
-
-                # Get details and reviews
-                restaurant_details = self.restaurant_api.get_restaurant_details(
-                    place_id
-                )
-                reviews = self.restaurant_api.get_restaurant_reviews(place_id)
-
-                # Format basic restaurant information
-                info = []
-                info.append(
-                    f"**{restaurant_details.get('name', 'Unknown Restaurant')}**"
-                )
-
-                rating_parts = []
-                if "rating" in restaurant_details:
-                    stars = "⭐" * int(restaurant_details.get("rating", 0))
-                    rating_parts.append(f"{restaurant_details.get('rating')} {stars}")
-                if "price_level" in restaurant_details:
-                    price_level = "💰" * restaurant_details.get("price_level", 0)
-                    rating_parts.append(price_level)
-                if rating_parts:
-                    info.append(" | ".join(rating_parts))
-
-                if "formatted_address" in restaurant_details:
-                    info.append(f"📍 {restaurant_details.get('formatted_address')}")
-
-                response_parts.append("\n".join(info))
-
-                # Generate AI summary of reviews if available
-                if reviews:
-                    reviews_text = self.restaurant_api.prepare_reviews_for_summary(
-                        reviews
-                    )
-
-                    # Generate summary using Mistral AI
-                    summary_messages = [
-                        {"role": "system", "content": REVIEW_SUMMARY_PROMPT},
-                        {"role": "user", "content": reviews_text},
-                    ]
-
-                    summary_response = self.client.chat.complete(
-                        model=MISTRAL_MODEL,
-                        messages=summary_messages,
-                    )
-
-                    response_parts.append(
-                        f"\n💬 {summary_response.choices[0].message.content}"
-                    )
-                else:
-                    response_parts.append("\nNo reviews available yet.")
-
-            # Add information about additional results
-            remaining_count = total_restaurants - end
-            if remaining_count > 0:
-                response_parts.append(
-                    "\nWould you like to see more restaurant recommendations?"
-                )
-            else:
-                response_parts.append(
-                    "\nThose are all the restaurants I found. Would you like to try a different search?"
-                )
-
-            return "\n".join(response_parts)
-
-        # Bind the tools to the LLM
-        self.tools = [search_restaurants, SplitBill(), ReservationAgent()]
+        # Initialize tools
+        self.tools = [SearchRestaurantsTool(), SplitBill(), ReservationAgent()]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     async def run(self, message: discord.Message):
-        # try:
         # Create messages with context about previous searches if available
         messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
