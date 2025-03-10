@@ -295,8 +295,8 @@ class TwilioReservationAgent:
             return f"❌ An unexpected error occurred: {str(e)}"
 
 
-class RestaurantAgent(BaseTool):
-    name: str = "restaurant_reservation"
+class ReservationAgent(BaseTool):
+    name: str = "make_restaurant_reservation"
     description: str = "A tool for making restaurant reservations through phone calls"
 
     _mistal_client: Mistral = PrivateAttr()
@@ -311,17 +311,25 @@ class RestaurantAgent(BaseTool):
         self.active_conversations = {}
 
     async def run(self, message: discord.Message):
-        if "make a reservation" in message.content.lower():
-            is_complete, details, error_msg = (
-                await self.reservation_agent.parse_reservation_request(message.content)
-            )
+        is_complete, details, error_msg = (
+            await self.reservation_agent.parse_reservation_request(message.content)
+        )
 
-            if not is_complete:
-                return error_msg
+        if not is_complete:
+            return error_msg
 
-            return await self.reservation_agent.make_reservation_call(details)
+        return await self.reservation_agent.make_reservation_call(details)
 
     async def _arun(self, message: str):
+        """
+        Use this tool for making restaurant reservations through phone calls. This tool will make a phone call to the restaurant and handle the conversation.
+
+        Args:
+            message (discord.Message): The message from the user.
+
+        Returns:
+            str: A message indicating the reservation was made.
+        """
         return await self.run(message)
 
     def _run(self, message: str):

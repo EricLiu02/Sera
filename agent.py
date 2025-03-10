@@ -10,6 +10,7 @@ from utils import extract_image_base64
 # Import Tools
 from tools.search_restaurants import SearchRestaurants
 from tools.split_bill import SplitBill
+from tools.reservation_agent import ReservationAgent
 
 from typing import Dict, List, Optional
 
@@ -184,7 +185,7 @@ class MistralAgent:
             return "\n".join(response_parts)
 
         # Bind the tools to the LLM
-        self.tools = [search_restaurants, SplitBill()]
+        self.tools = [search_restaurants, SplitBill(), ReservationAgent()]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     async def run(self, message: discord.Message):
@@ -312,6 +313,13 @@ class MistralAgent:
                     # except Exception as e:
                     #     print(f"Error processing restaurant search: {repr(e)}")
                     #     return "I encountered an error while searching for restaurants. Would you like to try again?"
+
+                if tool_name == "make_restaurant_reservation":
+                    return await self.tools[2].ainvoke(
+                        {
+                            "message": message,
+                        }
+                    )
 
         # If no tool calls, check for content in AI response
         if not ai_msg.content or not ai_msg.content.strip():
