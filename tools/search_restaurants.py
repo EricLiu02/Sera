@@ -227,6 +227,7 @@ class SearchRestaurantsTool(BaseTool):
             return "I've shown all available restaurants for this search. Would you like to try a different query?"
 
         response_parts = []
+        place_id_map = []
 
         # Let the LLM handle the introduction text through the system prompt
         if start == 0:
@@ -237,6 +238,7 @@ class SearchRestaurantsTool(BaseTool):
         for i in range(start, end):
             restaurant = restaurants[i]
             place_id = restaurant["place_id"]
+            place_id_map.append(place_id)
 
             # Add a separator between restaurants
             if i > start:
@@ -248,6 +250,7 @@ class SearchRestaurantsTool(BaseTool):
 
             # Format basic restaurant information
             info = []
+            # Add name without any visible markers
             info.append(f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
 
             rating_parts = []
@@ -280,24 +283,59 @@ class SearchRestaurantsTool(BaseTool):
                     messages=summary_messages,
                 )
 
-                response_parts.append(
-                    f"\n💬 {summary_response.choices[0].message.content}"
-                )
+                response_parts.append(f"\n💬 {summary_response.choices[0].message.content}")
             else:
                 response_parts.append("\nNo reviews available yet.")
 
         # Add information about additional results
         remaining_count = total_restaurants - end
         if remaining_count > 0:
-            response_parts.append(
-                "\nWould you like to see more restaurant recommendations?"
-            )
+            response_parts.append("\nWould you like to see more restaurant recommendations?")
         else:
-            response_parts.append(
-                "\nThose are all the restaurants I found. Would you like to try a different search?"
-            )
+            response_parts.append("\nThose are all the restaurants I found. Would you like to try a different search?")
 
-        return "\n".join(response_parts)
+        # Store metadata in a completely invisible way using a special character sequence
+        metadata = []
+        for i, (pid, details) in enumerate(zip(place_id_map, [restaurants[i] for i in range(start, end)]), 1):
+            # Use zero-width spaces and zero-width joiners to make it completely invisible
+            metadata.append(f"{details.get('name', 'Unknown Restaurant')}:{i}:{pid}")
+        response_parts.append(f"\u200b\u200c\u200d{','.join(metadata)}\u200b\u200c\u200d")
+
+        tool_output = "\n".join(response_parts)
+
+        # If the response is too long, truncate each restaurant's review summary
+        if len(tool_output) > 1900:
+            entries = tool_output.split("\n" + "-" * 30 + "\n")
+
+            # Keep the header
+            formatted_entries = [entries[0]]
+
+            # Process each restaurant entry except the last (metadata)
+            for entry in entries[1:-1]:
+                # Find the review section (after the 💬 emoji)
+                parts = entry.split("\n💬 ", 1)
+                if len(parts) > 1:
+                    # Keep the restaurant info and truncate the review
+                    restaurant_info = parts[0]
+                    review = parts[1]
+                    truncated_review = review[:200] + "..." if len(review) > 200 else review
+                    formatted_entries.append(f"{restaurant_info}\n💬 {truncated_review}")
+                else:
+                    formatted_entries.append(entry)
+
+            # Add the metadata back
+            formatted_entries.append(entries[-1])
+
+            # Join everything back together with separators
+            tool_output = "\n" + "-" * 30 + "\n".join(formatted_entries)
+
+            # If still too long, truncate the whole message but preserve metadata
+            if len(tool_output) > 1900:
+                metadata_part = entries[-1]
+                truncated_content = tool_output[:1850] + "\n\n[Some content truncated due to length]"
+                tool_output = truncated_content + metadata_part
+
+        return tool_output
 
     async def _arun(
         self, query: str, location: Optional[str] = None, start_index: int = 0
