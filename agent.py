@@ -10,6 +10,7 @@ from utils import extract_image_base64
 
 # Import Tools
 from tools.search_restaurants import SearchRestaurantsTool
+from tools.restaurant_details import RestaurantDetailsTool
 from tools.split_bill import SplitBill
 from tools.reservation_agent import ReservationAgent
 
@@ -56,14 +57,24 @@ MISTRAL_MODEL = "mistral-large-latest"
 
 SYSTEM_PROMPT = """
 You are a helpful assistant that can help users find and learn about restaurants. You have available to you the following tools:
-- search_restaurants
-- split_bill
-- make_restaurant_reservation
+- search_restaurants: Use this to find restaurants and get basic information
+- get_restaurant_details: Use this when users want more detailed information about a specific restaurant
+- split_bill: Use this to split a bill
+- make_restaurant_reservation: Use this to make a restaurant reservation
 
-You can use the search_restaurants tool to find restaurants, the split_bill tool to split a bill, and the make_restaurant_reservation tool to make a restaurant reservation.
+You can use the search_restaurants tool to find restaurants, the get_restaurant_details tool to get more information about a specific restaurant, the split_bill tool to split a bill, and the make_restaurant_reservation tool to make a restaurant reservation.
 The output of each tool is a string, and you should directly return the output of the tool in your response. Do not include any other text in your response or otherwise modify the output of the tool.
 
 You should use the search_restaurants tool to find restaurants when the user asks about a specific restaurant or cuisine, or when they ask for recommendations, or when they ask for a list of restaurants in a specific area, or when they ask for a list of restaurants in a specific category, directly or indirectly.
+
+You should use the get_restaurant_details tool when:
+1. A user asks for more information about a specific restaurant they found
+2. A user wants to know specific details like opening hours, contact info, or amenities
+3. A user wants to verify if a restaurant has certain features (outdoor seating, wheelchair access, etc.)
+
+When using get_restaurant_details:
+1. If the user is asking about a restaurant from search results, extract and use the place_id from the hidden comment in the search results
+2. If the user is asking about a restaurant directly by name, pass the name to the tool and it will search for it
 
 You should use the split_bill tool to split a bill when the user asks to split a bill.
 
@@ -94,7 +105,12 @@ class MistralAgent:
         ]
 
         llm = ChatMistralAI(api_key=MISTRAL_API_KEY, model=MISTRAL_MODEL)
-        tools = [SearchRestaurantsTool(), SplitBill(), ReservationAgent()]
+        tools = [
+            SearchRestaurantsTool(),
+            RestaurantDetailsTool(),
+            SplitBill(),
+            ReservationAgent()
+        ]
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYSTEM_PROMPT),
@@ -222,42 +238,6 @@ class MistralAgent:
 #                     tool_output = self.tools[0].invoke(tool_args)
 #                     if not tool_output:
 #                         return "I couldn't find any restaurants matching your criteria. Would you like to try a different search?"
-
-#                     # If the response is too long, truncate each restaurant's review summary
-#                     if len(tool_output) > 1900:
-#                         entries = tool_output.split("\n" + "-" * 30 + "\n")
-
-#                         # Keep the header
-#                         formatted_entries = [entries[0]]
-
-#                         # Process each restaurant entry
-#                         for entry in entries[1:]:
-#                             # Find the review section (after the 💬 emoji)
-#                             parts = entry.split("\n💬 ", 1)
-#                             if len(parts) > 1:
-#                                 # Keep the restaurant info and truncate the review
-#                                 restaurant_info = parts[0]
-#                                 review = parts[1]
-#                                 truncated_review = (
-#                                     review[:200] + "..."
-#                                     if len(review) > 200
-#                                     else review
-#                                 )
-#                                 formatted_entries.append(
-#                                     f"{restaurant_info}\n💬 {truncated_review}"
-#                                 )
-#                             else:
-#                                 formatted_entries.append(entry)
-
-#                         # Join everything back together with separators
-#                         tool_output = "\n" + "-" * 30 + "\n".join(formatted_entries)
-
-#                         # If still too long, truncate the whole message
-#                         if len(tool_output) > 1900:
-#                             tool_output = (
-#                                 tool_output[:1850]
-#                                 + "\n\n[Some content truncated due to length]"
-#                             )
 
 #                     return tool_output
 
