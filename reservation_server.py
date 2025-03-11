@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 import logging
 import atexit
 
@@ -16,15 +15,13 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-# Configure ngrok
-ngrok_auth_token = os.getenv("NGROK_AUTH_TOKEN")
-if not ngrok_auth_token:
+TWILIO_VOICE = os.getenv("TWILIO_VOICE")
+NGROK_AUTH_TOKEN = os.getenv("NGROK_AUTH_TOKEN")
+if not NGROK_AUTH_TOKEN:
     raise ValueError("NGROK_AUTH_TOKEN not found in environment variables")
 
 # Set up ngrok
-conf.get_default().auth_token = ngrok_auth_token
-# Start ngrok
+conf.get_default().auth_token = NGROK_AUTH_TOKEN
 http_tunnel = ngrok.connect(8000)
 WEBHOOK_BASE_URL = http_tunnel.public_url
 print(f"Webhook URL: {WEBHOOK_BASE_URL}")
@@ -43,7 +40,6 @@ async def set_reservation(reservation: dict):
     global current_reservation
     current_reservation = ReservationDetails(**reservation)
     logger.info(f"Reservation set: {current_reservation}")
-    print(f"Reservation set: {current_reservation}")
     return {"status": "success"}
 
 
@@ -62,7 +58,7 @@ async def handle_gather(request: Request):
             response = VoiceResponse()
             response.say(
                 "I apologize, but I've lost track of the conversation. Goodbye.",
-                voice="alice",
+                voice=TWILIO_VOICE,
             )
             return Response(content=str(response), media_type="application/xml")
 
@@ -77,7 +73,8 @@ async def handle_gather(request: Request):
         logger.error(f"Error in gather handler: {str(e)}", exc_info=True)
         response = VoiceResponse()
         response.say(
-            "I apologize for the technical difficulty. Please try again.", voice="alice"
+            "I apologize for the technical difficulty. Please try again.",
+            voice=TWILIO_VOICE,
         )
         return Response(content=str(response), media_type="application/xml")
 
