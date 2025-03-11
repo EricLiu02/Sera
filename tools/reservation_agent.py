@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 MISTRAL_MODEL = "mistral-large-latest"
 OPENAI_REALTIME_MODEL = "gpt-4o-realtime-preview"
+TWILIO_VOICE = os.getenv("TWILIO_VOICE")
 
 
 class TwilioReservationAgent:
@@ -181,7 +182,7 @@ class TwilioReservationAgent:
                     language="en-US",
                     speechTimeout="auto",
                 )
-                gather.say(ai_response, voice="woman")
+                gather.say(ai_response, voice=TWILIO_VOICE)
 
                 return str(response)
 
@@ -190,7 +191,7 @@ class TwilioReservationAgent:
             response = VoiceResponse()
             response.say(
                 "I apologize for the technical difficulty. Could you please repeat that?",
-                voice="woman",
+                voice=TWILIO_VOICE,
             )
             return str(response)
 
