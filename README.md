@@ -11,4 +11,7 @@ This bot is able to:
 - Split the bill
 - Have natural language conversations with users
 
-
+## Todos
+- [ ] Artur: Debug passing images to the split bill and debug why his tool is dumb
+- [ ] Sherry: Move truncation of tool output into the search restaurants tool
+- [ ] Sherry: Give extra details for one specific restaurant

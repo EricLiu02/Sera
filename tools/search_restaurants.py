@@ -17,6 +17,7 @@ Provide a very concise 2-3 sentence summary that captures:
 
 Keep your summary brief, direct, and informative."""
 
+
 class SearchRestaurants:
     """
     A class to interact with the Google Places API to get restaurant information and reviews.
@@ -207,6 +208,7 @@ class SearchRestaurantsTool(BaseTool):
             - Finding dining options in specific locations"""
     restaurant_api: SearchRestaurants = Field(default_factory=SearchRestaurants)
     client: Mistral = Field(default_factory=lambda: Mistral(api_key=MISTRAL_API_KEY))
+    return_direct: bool = True
 
     def _run(
         self, query: str, location: Optional[str] = None, start_index: int = 0
@@ -278,16 +280,22 @@ class SearchRestaurantsTool(BaseTool):
                     messages=summary_messages,
                 )
 
-                response_parts.append(f"\n💬 {summary_response.choices[0].message.content}")
+                response_parts.append(
+                    f"\n💬 {summary_response.choices[0].message.content}"
+                )
             else:
                 response_parts.append("\nNo reviews available yet.")
 
         # Add information about additional results
         remaining_count = total_restaurants - end
         if remaining_count > 0:
-            response_parts.append("\nWould you like to see more restaurant recommendations?")
+            response_parts.append(
+                "\nWould you like to see more restaurant recommendations?"
+            )
         else:
-            response_parts.append("\nThose are all the restaurants I found. Would you like to try a different search?")
+            response_parts.append(
+                "\nThose are all the restaurants I found. Would you like to try a different search?"
+            )
 
         return "\n".join(response_parts)
 

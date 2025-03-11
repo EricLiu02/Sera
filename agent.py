@@ -3,7 +3,9 @@ import re
 from mistralai import Mistral
 import discord
 from langchain_mistralai import ChatMistralAI
-from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.prompts import ChatPromptTemplate
 from utils import extract_image_base64
 
 # Import Tools
@@ -16,41 +18,65 @@ from typing import Dict, List, Optional
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 MISTRAL_MODEL = "mistral-large-latest"
-SYSTEM_PROMPT = """You are a helpful assistant with access to a search_restaurants tool for finding restaurant information.
+# SYSTEM_PROMPT = """You are a helpful assistant with access to a search_restaurants tool for finding restaurant information.
 
-Your primary task is to help users find and learn about restaurants. When users ask about restaurants, whether directly or indirectly, use the search_restaurants tool to provide accurate information.
+# Your primary task is to help users find and learn about restaurants. When users ask about restaurants, whether directly or indirectly, use the search_restaurants tool to provide accurate information.
 
-Examples of when to use the tool:
-1. Direct restaurant queries:
-   - "Find Italian restaurants in San Francisco"
-   - "What are some good restaurants near Stanford?"
-   - "Show me Chinese food places in Palo Alto"
+# Examples of when to use the tool:
+# 1. Direct restaurant queries:
+#    - "Find Italian restaurants in San Francisco"
+#    - "What are some good restaurants near Stanford?"
+#    - "Show me Chinese food places in Palo Alto"
 
-2. Indirect restaurant queries:
-   - "Where can I get sushi around here?"
-   - "I'm hungry for Mexican food"
-   - "What's a good place to eat near downtown?"
+# 2. Indirect restaurant queries:
+#    - "Where can I get sushi around here?"
+#    - "I'm hungry for Mexican food"
+#    - "What's a good place to eat near downtown?"
 
-3. Specific restaurant inquiries:
-   - "Tell me about Blue Bottle Coffee"
-   - "What are the reviews like for Pizzeria Delfina?"
+# 3. Specific restaurant inquiries:
+#    - "Tell me about Blue Bottle Coffee"
+#    - "What are the reviews like for Pizzeria Delfina?"
 
-4. Pagination requests:
-   - When users say "yes", "show more", "more options", or similar phrases in response to being asked if they want to see more restaurants
-   - In these cases, use the search_restaurants tool with the same query and location from the context, and the appropriate start_index
-   - The context will be provided as a dictionary with 'type': 'search_context', 'query', 'location', and 'results_shown' fields
+# 4. Pagination requests:
+#    - When users say "yes", "show more", "more options", or similar phrases in response to being asked if they want to see more restaurants
+#    - In these cases, use the search_restaurants tool with the same query and location from the context, and the appropriate start_index
+#    - The context will be provided as a dictionary with 'type': 'search_context', 'query', 'location', and 'results_shown' fields
 
-When using the tool, extract:
-- query: The type of restaurant, cuisine, or specific restaurant name
-- location: The area to search in (if provided)
-- start_index: For pagination requests, use the results_shown value from the context
+# When using the tool, extract:
+# - query: The type of restaurant, cuisine, or specific restaurant name
+# - location: The area to search in (if provided)
+# - start_index: For pagination requests, use the results_shown value from the context
 
-For non-restaurant queries, respond normally without using the tool.
+# For non-restaurant queries, respond normally without using the tool.
 
-Remember to maintain context for pagination when users ask to see more options.
+# Remember to maintain context for pagination when users ask to see more options.
 
-If the user asks to split a bill, use the split_bill tool. Assume that the image of the bill will be
-provided to the tool"""
+# If the user asks to split a bill, use the split_bill tool. Assume that the image of the bill will be
+# provided to the tool"""
+
+SYSTEM_PROMPT = """
+You are a helpful assistant that can help users find and learn about restaurants. You have available to you the following tools:
+- search_restaurants
+- split_bill
+- make_restaurant_reservation
+
+You can use the search_restaurants tool to find restaurants, the split_bill tool to split a bill, and the make_restaurant_reservation tool to make a restaurant reservation.
+The output of each tool is a string, and you should directly return the output of the tool in your response. Do not include any other text in your response or otherwise modify the output of the tool.
+
+You should use the search_restaurants tool to find restaurants when the user asks about a specific restaurant or cuisine, or when they ask for recommendations, or when they ask for a list of restaurants in a specific area, or when they ask for a list of restaurants in a specific category, directly or indirectly.
+
+You should use the split_bill tool to split a bill when the user asks to split a bill.
+
+You should use the make_restaurant_reservation tool to make a restaurant reservation when the user asks to make a restaurant reservation.
+
+You should not use the search_restaurants tool to find restaurants when the user asks to make a restaurant reservation. You should not make a restaurant reservation unless the user explicitly asks to make a restaurant reservation.
+Use the tool most appropriate for the user's request. Do not call into tools unless you are sure that the user's request is best handled by that tool.
+
+Make sure to directly return the output of the tool in your response. Do not include any other text in your response or otherwise modify the output of the tool.
+If the user's request is not best handled by a tool, respond normally without using a tool. Even though you are a restaurant expert, you can still respond normally without using a tool to other non-restaurant related questions.
+Only call into at most one tool per response.
+"""
+
 
 REVIEW_SUMMARY_PROMPT = """You are a helpful assistant specializing in summarizing restaurant reviews.
 Provide a very concise 2-3 sentence summary that captures:
@@ -63,158 +89,195 @@ Keep your summary brief, direct, and informative."""
 
 class MistralAgent:
     def __init__(self):
-        # Initialize the LangChain Mistral chat model
-        self.llm = ChatMistralAI(api_key=MISTRAL_API_KEY, model=MISTRAL_MODEL)
-        
-        # Initialize restaurant API for pagination context
-        self.restaurant_api = SearchRestaurantsTool()
+        self.chat_history = [
+            SystemMessage(content=SYSTEM_PROMPT),
+        ]
 
-        # State tracking for restaurant queries
-        # channel_id -> query info
-        self.last_restaurant_query: Dict[int, Dict] = {}
+        llm = ChatMistralAI(api_key=MISTRAL_API_KEY, model=MISTRAL_MODEL)
+        tools = [SearchRestaurantsTool(), SplitBill(), ReservationAgent()]
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SYSTEM_PROMPT),
+                ("placeholder", "{chat_history}"),
+                ("human", "{input}"),
+                ("placeholder", "{image}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ]
+        )
 
-        # Initialize tools
-        self.tools = [SearchRestaurantsTool(), SplitBill(), ReservationAgent()]
-        self.llm_with_tools = self.llm.bind_tools(self.tools)
+        agent = create_tool_calling_agent(llm, tools, prompt)
+        self.agent = AgentExecutor(agent=agent, tools=tools)
 
     async def run(self, message: discord.Message):
-        # Create messages with context about previous searches if available
-        messages = [SystemMessage(content=SYSTEM_PROMPT)]
+        try:
+            base64_image = await extract_image_base64(message)
+        except Exception as e:
+            base64_image = None
 
-        # Add context about previous search if it exists
-        last_query = self.last_restaurant_query.get(message.channel.id)
-        if last_query:
-            context = {
-                "type": "search_context",
-                "query": last_query["query"],
-                "location": last_query["location"],
-                "results_shown": last_query["last_index"] + 3,
-                "total_results": len(
-                    self.restaurant_api.search_restaurant(
-                        last_query["query"], last_query["location"]
-                    )
-                ),
-            }
-            messages.append(SystemMessage(content=str(context)))
+        self.chat_history.append(HumanMessage(content=message.content))
+        output = await self.agent.ainvoke(
+            {"input": message.content, "chat_history": self.chat_history}
+        )
 
-        messages.append(HumanMessage(content=message.content))
+        print(f"TOOL OUTPUT\n\n{output}\n\n", output)
+        self.chat_history.append(AIMessage(content=output["output"]))
+        return output["output"]
 
-        # Let LangChain handle all the query interpretation
-        ai_msg = await self.llm_with_tools.ainvoke(messages)
-        if not ai_msg:
-            return "I apologize, but I couldn't process that request. Could you please try rephrasing it?"
 
-        messages.append(ai_msg)
+# class MistralAgent:
+#     def __init__(self):
+#         # Initialize the LangChain Mistral chat model
+#         self.llm = ChatMistralAI(api_key=MISTRAL_API_KEY, model=MISTRAL_MODEL)
 
-        # Check for tool calls first
-        if hasattr(ai_msg, "tool_calls") and ai_msg.tool_calls:
-            for tool_call in ai_msg.tool_calls:
-                tool_name = tool_call["name"].lower()
-                tool_args = tool_call["args"]
+#         # Initialize restaurant API for pagination context
+#         self.restaurant_api = SearchRestaurantsTool()
 
-                if tool_name == "split_bill":
-                    try:
-                        base64_image = await extract_image_base64(message)
-                    except Exception as e:
-                        return str(e)
+#         # State tracking for restaurant queries
+#         # channel_id -> query info
+#         self.last_restaurant_query: Dict[int, Dict] = {}
 
-                    # Use provided user instructions if available in tool_args, else fall back to message content
-                    user_instructions = tool_args.get(
-                        "user_instructions", message.content
-                    )
+#         # Initialize tools
+#         self.tools = [SearchRestaurantsTool(), SplitBill(), ReservationAgent()]
+#         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
-                    split_bill_tool = next(
-                        (t for t in self.tools if t.name.lower() == "split_bill"),
-                        None,
-                    )
+#     async def run(self, message: discord.Message):
+#         # Create messages with context about previous searches if available
+#         messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-                    return await split_bill_tool.ainvoke(
-                        {
-                            "user_instructions": user_instructions,
-                            "image": base64_image,
-                        }
-                    )
-                # Execute the search_restaurants tool
-                if tool_name == "search_restaurants":
-                    # Validate tool arguments
-                    if not tool_args.get("query") and (
-                        not last_query or not last_query.get("query")
-                    ):
-                        return "I need to know what kind of restaurant you're looking for. Could you please specify?"
+#         # Add context about previous search if it exists
+#         last_query = self.last_restaurant_query.get(message.channel.id)
+#         if last_query:
+#             context = {
+#                 "type": "search_context",
+#                 "query": last_query["query"],
+#                 "location": last_query["location"],
+#                 "results_shown": last_query["last_index"] + 3,
+#                 "total_results": len(
+#                     self.restaurant_api.restaurant_api.search_restaurant(
+#                         last_query["query"], last_query["location"]
+#                     )
+#                 ),
+#             }
+#             messages.append(SystemMessage(content=str(context)))
 
-                    # Store or update query information for pagination
-                    self.last_restaurant_query[message.channel.id] = {
-                        "query": tool_args.get(
-                            "query", last_query["query"] if last_query else None
-                        ),
-                        "location": tool_args.get(
-                            "location",
-                            last_query["location"] if last_query else None,
-                        ),
-                        "last_index": tool_args.get("start_index", 0),
-                    }
+#         messages.append(HumanMessage(content=message.content))
 
-                    # try:
-                    # Get restaurant recommendations
-                    tool_output = self.tools[0].invoke(tool_args)
-                    if not tool_output:
-                        return "I couldn't find any restaurants matching your criteria. Would you like to try a different search?"
+#         # Let LangChain handle all the query interpretation
+#         ai_msg = await self.llm_with_tools.ainvoke(messages)
+#         if not ai_msg:
+#             return "I apologize, but I couldn't process that request. Could you please try rephrasing it?"
 
-                    # If the response is too long, truncate each restaurant's review summary
-                    if len(tool_output) > 1900:
-                        entries = tool_output.split("\n" + "-" * 30 + "\n")
+#         messages.append(ai_msg)
 
-                        # Keep the header
-                        formatted_entries = [entries[0]]
+#         # Check for tool calls first
+#         if hasattr(ai_msg, "tool_calls") and ai_msg.tool_calls:
+#             for tool_call in ai_msg.tool_calls:
+#                 tool_name = tool_call["name"].lower()
+#                 tool_args = tool_call["args"]
 
-                        # Process each restaurant entry
-                        for entry in entries[1:]:
-                            # Find the review section (after the 💬 emoji)
-                            parts = entry.split("\n💬 ", 1)
-                            if len(parts) > 1:
-                                # Keep the restaurant info and truncate the review
-                                restaurant_info = parts[0]
-                                review = parts[1]
-                                truncated_review = (
-                                    review[:200] + "..."
-                                    if len(review) > 200
-                                    else review
-                                )
-                                formatted_entries.append(
-                                    f"{restaurant_info}\n💬 {truncated_review}"
-                                )
-                            else:
-                                formatted_entries.append(entry)
+#                 if tool_name == "split_bill":
+#                     try:
+#                         base64_image = await extract_image_base64(message)
+#                     except Exception as e:
+#                         return str(e)
 
-                        # Join everything back together with separators
-                        tool_output = "\n" + "-" * 30 + "\n".join(formatted_entries)
+#                     # Use provided user instructions if available in tool_args, else fall back to message content
+#                     user_instructions = tool_args.get(
+#                         "user_instructions", message.content
+#                     )
 
-                        # If still too long, truncate the whole message
-                        if len(tool_output) > 1900:
-                            tool_output = (
-                                tool_output[:1850]
-                                + "\n\n[Some content truncated due to length]"
-                            )
+#                     split_bill_tool = next(
+#                         (t for t in self.tools if t.name.lower() == "split_bill"),
+#                         None,
+#                     )
 
-                    return tool_output
+#                     return await split_bill_tool.ainvoke(
+#                         {
+#                             "user_instructions": user_instructions,
+#                             "image": base64_image,
+#                         }
+#                     )
+#                 # Execute the search_restaurants tool
+#                 if tool_name == "search_restaurants":
+#                     # Validate tool arguments
+#                     if not tool_args.get("query") and (
+#                         not last_query or not last_query.get("query")
+#                     ):
+#                         return "I need to know what kind of restaurant you're looking for. Could you please specify?"
 
-                    # except Exception as e:
-                    #     print(f"Error processing restaurant search: {repr(e)}")
-                    #     return "I encountered an error while searching for restaurants. Would you like to try again?"
+#                     # Store or update query information for pagination
+#                     self.last_restaurant_query[message.channel.id] = {
+#                         "query": tool_args.get(
+#                             "query", last_query["query"] if last_query else None
+#                         ),
+#                         "location": tool_args.get(
+#                             "location",
+#                             last_query["location"] if last_query else None,
+#                         ),
+#                         "last_index": tool_args.get("start_index", 0),
+#                     }
 
-                if tool_name == "make_restaurant_reservation":
-                    return await self.tools[2].ainvoke(
-                        {
-                            "message": message,
-                        }
-                    )
+#                     # try:
+#                     # Get restaurant recommendations
+#                     tool_output = self.tools[0].invoke(tool_args)
+#                     if not tool_output:
+#                         return "I couldn't find any restaurants matching your criteria. Would you like to try a different search?"
 
-        # If no tool calls, check for content in AI response
-        if not ai_msg.content or not ai_msg.content.strip():
-            return "I'm not sure how to help with that. Could you please rephrase your question?"
+#                     # If the response is too long, truncate each restaurant's review summary
+#                     if len(tool_output) > 1900:
+#                         entries = tool_output.split("\n" + "-" * 30 + "\n")
 
-        return ai_msg.content
+#                         # Keep the header
+#                         formatted_entries = [entries[0]]
 
-        # except Exception as e:
-        #     print(f"Error in run method: {str(e)}")  # Debug logging
-        #     return "I'm having trouble processing your request. Could you please try again?"
+#                         # Process each restaurant entry
+#                         for entry in entries[1:]:
+#                             # Find the review section (after the 💬 emoji)
+#                             parts = entry.split("\n💬 ", 1)
+#                             if len(parts) > 1:
+#                                 # Keep the restaurant info and truncate the review
+#                                 restaurant_info = parts[0]
+#                                 review = parts[1]
+#                                 truncated_review = (
+#                                     review[:200] + "..."
+#                                     if len(review) > 200
+#                                     else review
+#                                 )
+#                                 formatted_entries.append(
+#                                     f"{restaurant_info}\n💬 {truncated_review}"
+#                                 )
+#                             else:
+#                                 formatted_entries.append(entry)
+
+#                         # Join everything back together with separators
+#                         tool_output = "\n" + "-" * 30 + "\n".join(formatted_entries)
+
+#                         # If still too long, truncate the whole message
+#                         if len(tool_output) > 1900:
+#                             tool_output = (
+#                                 tool_output[:1850]
+#                                 + "\n\n[Some content truncated due to length]"
+#                             )
+
+#                     return tool_output
+
+#                     # except Exception as e:
+#                     #     print(f"Error processing restaurant search: {repr(e)}")
+#                     #     return "I encountered an error while searching for restaurants. Would you like to try again?"
+
+#                 if tool_name == "make_restaurant_reservation":
+#                     return await self.tools[2].ainvoke(
+#                         {
+#                             "message": message,
+#                         }
+#                     )
+
+#         # If no tool calls, check for content in AI response
+#         if not ai_msg.content or not ai_msg.content.strip():
+#             return "I'm not sure how to help with that. Could you please rephrase your question?"
+
+#         return ai_msg.content
+
+#         # except Exception as e:
+#         #     print(f"Error in run method: {str(e)}")  # Debug logging
+#         #     return "I'm having trouble processing your request. Could you please try again?"

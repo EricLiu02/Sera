@@ -302,6 +302,7 @@ class ReservationAgent(BaseTool):
     _mistal_client: Mistral = PrivateAttr()
     reservation_agent: TwilioReservationAgent = None
     active_conversations: Dict[str, ReservationDetails] = {}
+    return_direct: bool = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -310,9 +311,9 @@ class ReservationAgent(BaseTool):
         self.reservation_agent = TwilioReservationAgent()
         self.active_conversations = {}
 
-    async def run(self, message: discord.Message):
+    async def run(self, message: str):
         is_complete, details, error_msg = (
-            await self.reservation_agent.parse_reservation_request(message.content)
+            await self.reservation_agent.parse_reservation_request(message)
         )
 
         if not is_complete:
