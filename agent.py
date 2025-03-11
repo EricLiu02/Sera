@@ -6,16 +6,14 @@ from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
-from utils import extract_image_base64
 
 # Import Tools
 from tools.search_restaurants import SearchRestaurantsTool
-from tools.split_bill import SplitBill
+from tools.split_bill import SplitBill, get_image_text
 from tools.reservation_agent import ReservationAgent
 
-from typing import Dict, List, Optional
-
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 MISTRAL_MODEL = "mistral-large-latest"
 # SYSTEM_PROMPT = """You are a helpful assistant with access to a search_restaurants tool for finding restaurant information.
@@ -100,7 +98,6 @@ class MistralAgent:
                 ("system", SYSTEM_PROMPT),
                 ("placeholder", "{chat_history}"),
                 ("human", "{input}"),
-                ("placeholder", "{image}"),
                 ("placeholder", "{agent_scratchpad}"),
             ]
         )
@@ -109,17 +106,18 @@ class MistralAgent:
         self.agent = AgentExecutor(agent=agent, tools=tools)
 
     async def run(self, message: discord.Message):
-        try:
-            base64_image = await extract_image_base64(message)
-        except Exception as e:
-            base64_image = None
+        image_text = await get_image_text(message)
+        human_message = f"{message.content} {image_text}"
 
-        self.chat_history.append(HumanMessage(content=message.content))
+        self.chat_history.append(HumanMessage(content=human_message))
+
         output = await self.agent.ainvoke(
-            {"input": message.content, "chat_history": self.chat_history}
+            {
+                "input": human_message,
+                "chat_history": self.chat_history,
+            }
         )
 
-        print(f"TOOL OUTPUT\n\n{output}\n\n", output)
         self.chat_history.append(AIMessage(content=output["output"]))
         return output["output"]
 

@@ -11,13 +11,10 @@ from langchain.schema import HumanMessage
 from langchain_core.tools import BaseTool
 from typing import Optional
 
-from langchain_core.callbacks import (
-    AsyncCallbackManagerForToolRun,
-    CallbackManagerForToolRun,
-)
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field, PrivateAttr
+import discord
 
 
 load_dotenv()
@@ -29,7 +26,7 @@ class SplitBillInput(BaseModel):
     user_instructions: str = Field(
         description="Instructions the user provided in their message in order to split the bill"
     )
-    image: str = Field(description="Base64 encoded image of the receipt")
+    bill: str = Field(description="The full bill transcription")
 
 
 class SplitBill(BaseTool):
@@ -50,27 +47,27 @@ class SplitBill(BaseTool):
         Initializes the SplitBill class with an OpenAI-powered agent for processing.
         """
         super().__init__(**data)
-        self._agent = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
+        self._agent = ChatOpenAI(
+            openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
 
-    async def _arun(self, user_instructions: str, image: str) -> str:
+    async def _arun(self, user_instructions: str, bill: str) -> str:
         """
         Processes the given receipt image and user prompt to return a formatted bill split.
 
         Args:
             user_prompt (str): The user's description of how to split the bill.
-            image (Image.Image): The image of the receipt.
+            bill (str): The image of the receipt.
 
         Returns:
             str: A formatted response indicating how the bill is split.
         """
-        # Extract text from image using OpenAI Vision API
-        image_raw_text = await self.__image_to_raw_text(image)
         # Construct the prompt using system instructions, user prompt, and OCR output
-        prompt = f"{INITIAL_PROMPT} {user_instructions} {image_raw_text}"
+        prompt = f"{INITIAL_PROMPT} {user_instructions} {bill}"
         initial_response_text = await self._agent.ainvoke(prompt)
 
         # Parse response to extract the breakdown
-        breakdown_dict = self.__raw_text_to_breakdown(initial_response_text.content)
+        breakdown_dict = self.__raw_text_to_breakdown(
+            initial_response_text.content)
 
         split = self.__perform_split(breakdown_dict)
 
@@ -91,37 +88,6 @@ class SplitBill(BaseTool):
         This would need asyncio.run() or similar to execute the async version.
         """
         raise NotImplementedError("Please use the async version of this tool")
-
-    async def __image_to_raw_text(self, image: str) -> str:
-        """
-        Extracts raw text from the given receipt image using OpenAI's vision capabilities.
-
-        Args:
-            image (Image.Image): The receipt image.
-
-        Returns:
-            str: The extracted text from the image.
-        """
-        image_url = ""
-        if not image.startswith("data:image"):
-            image_url = f"data:image/jpeg;base64,{image}"
-        else:
-            image_url = image
-
-        response = await self._agent.ainvoke(
-            [
-                HumanMessage(
-                    content=[
-                        {
-                            "type": "text",
-                            "text": "Extract the text from this receipt image.",
-                        },
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ]
-                )
-            ]
-        )
-        return response.content
 
     def __raw_text_to_breakdown(self, raw_text: str) -> Dict[str, any]:
         """
@@ -148,7 +114,8 @@ class SplitBill(BaseTool):
         Returns:
             Dict[str, float]: A dictionary mapping names to the amount each person owes.
         """
-        persons = [key for key in breakdown if key not in ["<tax>", "<tip>", "<total>"]]
+        persons = [key for key in breakdown if key not in [
+            "<tax>", "<tip>", "<total>"]]
 
         subtotals = {}
         overall_subtotal = 0.0
@@ -206,5 +173,31 @@ if __name__ == "__main__":
             user_instructions=bill["prompt"], image=img_base64
         )
         print(result)
+
+    async def get_image_text(self, message: discord.Message):
+        if not message.attachments or "image" not in message.attachments[0].content_type:
+            return ""
+
+        image_url = message.attachments[0].url
+        gpt = ChatOpenAI(
+            openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
+
+        try:
+            response = await gpt.ainvoke(
+                [
+                    HumanMessage(
+                        content=[
+                            {
+                                "type": "text",
+                                "text": "Extract the text from this receipt image. Don't send anything else other than the extracted text.",
+                            },
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ]
+                    )
+                ]
+            )
+            return "Here is a transcription of the bill: " + response.content
+        except (SyntaxError, ValueError) as e:
+            return ""
 
     asyncio.run(main())
