@@ -16,6 +16,8 @@ dependencies:
     - openai>=1.0.0
     - fastapi>=0.110.0
     - googlemaps>=4.10.0
+    - langchain>=0.1.12
+    - langchain-openai>=0.0.8
     - langchain-mistralai>=0.0.3
     - httpx>=0.26.0
     - pydantic>=2.0.0

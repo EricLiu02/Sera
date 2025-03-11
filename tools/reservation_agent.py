@@ -4,9 +4,8 @@ import os
 import re
 from datetime import datetime
 from typing import Dict, Optional
-from dataclasses import asdict
+import asyncio
 
-import discord
 from mistralai import Mistral
 from openai import AsyncOpenAI
 from twilio.rest import Client
@@ -338,4 +337,4 @@ class ReservationAgent(BaseTool):
         Synchronous version of the reservation agent.
         This would need asyncio.run() or similar to execute the async version.
         """
-        raise NotImplementedError("Please use the async version of this tool")
+        return asyncio.run(self.run(message))

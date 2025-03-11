@@ -1,21 +1,20 @@
-import os
-import base64
-from typing import Dict
-from PIL import Image
 import ast
+import asyncio
+import base64
 import io
-from dotenv import load_dotenv
-from tools.prompts.split_bill_prompts import INITIAL_PROMPT, FINAL_PROMPT
-from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage
-from langchain_core.tools import BaseTool
-from typing import Optional
+import os
+from typing import Dict, Optional
 
+import discord
+from dotenv import load_dotenv
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import ArgsSchema
+from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage
+from PIL import Image
 from pydantic import BaseModel, Field, PrivateAttr
-import discord
 
+from tools.prompts.split_bill_prompts import INITIAL_PROMPT, FINAL_PROMPT
 
 load_dotenv()
 
@@ -85,7 +84,7 @@ class SplitBill(BaseTool):
         Synchronous version of the bill splitting functionality.
         This would need asyncio.run() or similar to execute the async version.
         """
-        raise NotImplementedError("Please use the async version of this tool")
+        return asyncio.run(self._arun(user_instructions, image))
 
     def __raw_text_to_breakdown(self, raw_text: str) -> Dict[str, any]:
         """
@@ -135,7 +134,7 @@ class SplitBill(BaseTool):
         return split
 
 
-async def get_image_text(self, message: discord.Message):
+async def get_image_text(message: discord.Message):
     if not message.attachments or "image" not in message.attachments[0].content_type:
         return ""
 
@@ -161,40 +160,39 @@ async def get_image_text(self, message: discord.Message):
         return ""
 
 
+async def test_split_bill():
+    """
+    Test function to run the bill splitting functionality using sample receipt images.
+    """
+    test_bills = [
+        {
+            "filename": "data/test_images/img1.jpeg",
+            "prompt": "Split this bill. Sherry got the queijo quente and I got the rest",
+        },
+        {
+            "filename": "data/test_images/img2.jpeg",
+            "prompt": "I got the Fish and Chips, Kohi the bread, Liz the coke and we all shared the fries.",
+        },
+        {
+            "filename": "data/test_images/img3.jpeg",
+            "prompt": "John got the 2 bw rolls and a facial tissue, I got all the rest.",
+        },
+    ]
+    bill = test_bills[2]
+    split_bill = SplitBill()
+
+    # Convert image
+    image = Image.open(bill["filename"])
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    # Call function
+    result = await split_bill.ainvoke(
+        user_instructions=bill["prompt"], image=img_base64
+    )
+    print(result)
+
+
 if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        """
-        Test function to run the bill splitting functionality using sample receipt images.
-        """
-        test_bills = [
-            {
-                "filename": "data/test_images/img1.jpeg",
-                "prompt": "Split this bill. Sherry got the queijo quente and I got the rest",
-            },
-            {
-                "filename": "data/test_images/img2.jpeg",
-                "prompt": "I got the Fish and Chips, Kohi the bread, Liz the coke and we all shared the fries.",
-            },
-            {
-                "filename": "data/test_images/img3.jpeg",
-                "prompt": "John got the 2 bw rolls and a facial tissue, I got all the rest.",
-            },
-        ]
-        bill = test_bills[2]
-        split_bill = SplitBill()
-
-        # Convert image
-        image = Image.open(bill["filename"])
-        buffered = io.BytesIO()
-        image.save(buffered, format="JPEG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-        # Call function
-        result = await split_bill.ainvoke(
-            user_instructions=bill["prompt"], image=img_base64
-        )
-        print(result)
-
-    asyncio.run(main())
+    asyncio.run(test_split_bill())
