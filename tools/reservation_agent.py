@@ -58,7 +58,7 @@ class TwilioReservationAgent:
                 "Webhook URL file not found - must run reservation_server.py first"
             )
 
-    def _format_phone_number(self, phone: str) -> str:
+    def format_phone_number(self, phone: str) -> str:
         """Formats phone number to E.164 format, assuming US if no country code"""
         # Remove any non-digit characters
         digits = re.sub(r"\D", "", phone)
@@ -234,7 +234,7 @@ class TwilioReservationAgent:
             details = result["details"]
             try:
                 # Format phone number, assuming US if no country code
-                formatted_phone = self._format_phone_number(details["phone_number"])
+                formatted_phone = self.format_phone_number(details["phone_number"])
 
                 reservation = ReservationDetails(
                     restaurant_phone=formatted_phone,
@@ -262,7 +262,7 @@ class TwilioReservationAgent:
         """Make the initial call to the restaurant"""
         logger.info("Starting reservation call")
         try:
-            formatted_restaurant_phone = self._format_phone_number(
+            formatted_restaurant_phone = self.format_phone_number(
                 reservation.restaurant_phone
             )
             logger.info(f"Formatted phone number: {formatted_restaurant_phone}")

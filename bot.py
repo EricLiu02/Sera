@@ -6,6 +6,8 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from agent import MistralAgent
 
+# from tools.reservation_agent import TwilioReservationAgent
+
 PREFIX = "!"
 
 # Setup logging
@@ -21,7 +23,7 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # Import the Mistral agent from the agent.py file
 agent = MistralAgent()
-
+# twilio_agent = TwilioReservationAgent()
 
 # Get the token from the environment variables
 token = os.getenv("DISCORD_TOKEN")
@@ -75,23 +77,20 @@ async def ping(ctx, *, arg=None):
         await ctx.send(f"Pong! Your argument was {arg}")
 
 
-@bot.command(
-    name="restaurant",
-    help="Search for restaurants. Usage: !restaurant [query] in [location]",
-)
-async def restaurant_search(ctx, *, query=None):
-    if query is None:
-        await ctx.send(
-            "Please provide a restaurant search query. Example: `!restaurant pizza in San Francisco`"
-        )
-        return
+# @bot.command(
+#     name="verify", help="Verifies a user's phone number. Usage: !verify [phone number]"
+# )
+# async def verify(ctx, *args):
+#     phone_number = "".join(args)
+#     if phone_number == "":
+#         await ctx.send("Please provide a phone number. Example: `!verify +1234567890`")
+#         return
 
-    try:
-        # Process the query through the agent's restaurant API
-        response = await agent.run(discord.Message(content=query, author=ctx.author))
-        await ctx.send(response)
-    except Exception as e:
-        await ctx.send(f"Error searching for restaurants: {str(e)}")
+#     phone_number = twilio_agent.format_phone_number(phone_number)
+#     validation_request = twilio_agent.validate_phone_number(phone_number, ctx.author)
+#     await ctx.send(
+#         f"SMS verification sent to {phone_number}. Please reply with the following code to verify your phone number: {validation_request.validation_code}"
+#     )
 
 
 # Start the bot, connecting it to the gateway

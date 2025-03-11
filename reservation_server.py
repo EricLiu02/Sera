@@ -42,16 +42,6 @@ current_reservation = None
 async def set_reservation(reservation: dict):
     global current_reservation
     current_reservation = ReservationDetails(**reservation)
-    # current_reservation = ReservationDetails(
-    #     party_size=reservation["party_size"],
-    #     reservation_time=datetime.fromisoformat(reservation["reservation_time"]),
-    #     customer_name=reservation["customer_name"],
-    #     restaurant_phone=reservation["restaurant_phone"],
-    #     special_requests=reservation.get(
-    #         "special_requests"
-    #     ),  # Using .get() since it's optional
-    #     chat_history=reservation.get("chat_history", []),
-    # )
     logger.info(f"Reservation set: {current_reservation}")
     print(f"Reservation set: {current_reservation}")
     return {"status": "success"}

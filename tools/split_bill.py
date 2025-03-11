@@ -47,8 +47,7 @@ class SplitBill(BaseTool):
         Initializes the SplitBill class with an OpenAI-powered agent for processing.
         """
         super().__init__(**data)
-        self._agent = ChatOpenAI(
-            openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
+        self._agent = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
 
     async def _arun(self, user_instructions: str, bill: str) -> str:
         """
@@ -66,8 +65,7 @@ class SplitBill(BaseTool):
         initial_response_text = await self._agent.ainvoke(prompt)
 
         # Parse response to extract the breakdown
-        breakdown_dict = self.__raw_text_to_breakdown(
-            initial_response_text.content)
+        breakdown_dict = self.__raw_text_to_breakdown(initial_response_text.content)
 
         split = self.__perform_split(breakdown_dict)
 
@@ -114,8 +112,7 @@ class SplitBill(BaseTool):
         Returns:
             Dict[str, float]: A dictionary mapping names to the amount each person owes.
         """
-        persons = [key for key in breakdown if key not in [
-            "<tax>", "<tip>", "<total>"]]
+        persons = [key for key in breakdown if key not in ["<tax>", "<tip>", "<total>"]]
 
         subtotals = {}
         overall_subtotal = 0.0
@@ -136,6 +133,32 @@ class SplitBill(BaseTool):
             split[name] = round(person_subtotal + person_tax + person_tip, 2)
 
         return split
+
+
+async def get_image_text(self, message: discord.Message):
+    if not message.attachments or "image" not in message.attachments[0].content_type:
+        return ""
+
+    image_url = message.attachments[0].url
+    gpt = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
+
+    try:
+        response = await gpt.ainvoke(
+            [
+                HumanMessage(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": "Extract the text from this receipt image. Don't send anything else other than the extracted text.",
+                        },
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ]
+                )
+            ]
+        )
+        return "Here is a transcription of the bill: " + response.content
+    except (SyntaxError, ValueError) as e:
+        return ""
 
 
 if __name__ == "__main__":
@@ -173,31 +196,5 @@ if __name__ == "__main__":
             user_instructions=bill["prompt"], image=img_base64
         )
         print(result)
-
-    async def get_image_text(self, message: discord.Message):
-        if not message.attachments or "image" not in message.attachments[0].content_type:
-            return ""
-
-        image_url = message.attachments[0].url
-        gpt = ChatOpenAI(
-            openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
-
-        try:
-            response = await gpt.ainvoke(
-                [
-                    HumanMessage(
-                        content=[
-                            {
-                                "type": "text",
-                                "text": "Extract the text from this receipt image. Don't send anything else other than the extracted text.",
-                            },
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                        ]
-                    )
-                ]
-            )
-            return "Here is a transcription of the bill: " + response.content
-        except (SyntaxError, ValueError) as e:
-            return ""
 
     asyncio.run(main())
