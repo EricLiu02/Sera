@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import logging
+import atexit
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
@@ -91,5 +92,11 @@ async def handle_gather(request: Request):
         return Response(content=str(response), media_type="application/xml")
 
 
+def cleanup():
+    if os.path.exists("webhook_url.txt"):
+        os.remove("webhook_url.txt")
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    atexit.register(cleanup)
