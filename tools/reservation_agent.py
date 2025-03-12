@@ -87,10 +87,6 @@ class TwilioReservationAgent:
         # Convert datetime to string
         if data.get("reservation_time"):
             data["reservation_time"] = self.datetime_to_str(data["reservation_time"])
-        if data.get("range_start"):
-            data["range_start"] = self.datetime_to_str(data["range_start"])
-        if data.get("range_end"):
-            data["range_end"] = self.datetime_to_str(data["range_end"])
         return data
 
     async def handle_conversation(
@@ -249,8 +245,6 @@ class TwilioReservationAgent:
                     customer_name=details["customer_name"],
                     special_requests=details["special_requests"],
                     chat_history=[],
-                    range_start=datetime.fromisoformat(details["range_start"]),
-                    range_end=datetime.fromisoformat(details["range_end"]),
                 )
                 return True, reservation, None
 
@@ -267,13 +261,10 @@ class TwilioReservationAgent:
     async def analyze_call_outcome(self, reservation: ReservationDetails) -> bool:
         """Analyze the call transcript to determine if reservation was confirmed"""
         try:
-            print(reservation.chat_history)
-            history = "\n".join(reservation.chat_history)
-
             prompt = f"""
 Analyze this restaurant reservation call transcript and determine if the reservation was confirmed.
 If the reservation was confirmed, return the reservation details.
-Transcript: {history}
+Transcript: {reservation.chat_history}
 
 Return a JSON object with:
 - confirmed: boolean (true if reservation was confirmed)
@@ -362,7 +353,6 @@ Return a JSON object with:
                 f"Reservation details:\n"
                 f"- Party size: {reservation.party_size}\n"
                 f"- Time: {reservation.reservation_time.strftime('%I:%M %p on %A, %B %d')}\n"
-                f"- Alternative Time Range: {reservation.range_start.strftime('%I:%M %p')} - {reservation.range_end.strftime('%I:%M %p')}\n"
                 f"- Name: {reservation.customer_name}\n"
                 f"- Special requests: {reservation.special_requests or 'None'}"
             )

@@ -8,8 +8,6 @@ class ReservationDetails(BaseModel):
     restaurant_phone: str
     party_size: int
     reservation_time: datetime
-    range_start: datetime
-    range_end: datetime
     customer_name: str
     special_requests: Optional[str] = None
     chat_history: List[str] = None
@@ -25,9 +23,8 @@ EXTRACT_RESERVATION_DETAILS_PROMPT = """
        - 10 digits for US numbers (will add +1)
        - Full international format with + and country code
     4. Party size must be a positive number
-    5. Prompt for a time range for the reservation if the preferred time is not available so that an alternative time can be offered.
 
-    Required fields: phone_number, party_size, reservation_time, customer_name, range_start, range_end
+    Required fields: phone_number, party_size, reservation_time, customer_name
     Optional fields: special_requests
 
     Phone number format:
@@ -46,7 +43,6 @@ EXTRACT_RESERVATION_DETAILS_PROMPT = """
     - "I need to know the name for the reservation"
     - "Could you specify what time you'd like the reservation?"
     - "How many people will be dining?"
-    - "If the time you want is not available, what other times could work? Is there a time range you're flexible with?"
 
     Return in JSON format:
     {
@@ -58,9 +54,7 @@ EXTRACT_RESERVATION_DETAILS_PROMPT = """
             "party_size": number,
             "reservation_time": "YYYY-MM-DD HH:MM",
             "customer_name": "name",
-            "special_requests": "requests or null",
-            "range_start": "YYYY-MM-DD HH:MM",
-            "range_end": "YYYY-MM-DD HH:MM"
+            "special_requests": "requests or null"
         }
     }
 
@@ -120,7 +114,7 @@ def get_restaurant_conversation_prompt(
     - Time: {reservation.reservation_time.strftime('%I:%M %p')}
     - Name: {reservation.customer_name}
     - Special requests: {reservation.special_requests or 'None'}
-    - Time range: {reservation.range_start.strftime('%I:%M %p')} - {reservation.range_end.strftime('%I:%M %p')}
+
     Your task:
     {
         "If this is the initial greeting:" if is_initial else "You're in the middle of the call:"
@@ -128,7 +122,7 @@ def get_restaurant_conversation_prompt(
     1. {"Introduce yourself professionally as an AI assistant" if is_initial else "Respond naturally to what they just said"}
     2. {"Clearly state all reservation details" if is_initial else "Stay focused on confirming the reservation"}
     3. {"Ask if the time works for them" if is_initial else "Handle their response appropriately"}
-    4. Ask if their preferred time is available. If it is not, ask if some other time in the time range works for them.
+    4. If they say no/busy: Ask about 30 minutes earlier/later
     5. If they have questions: Answer professionally
     6. Keep responses conversational but focused. Do not repeat yourself unless necessary. Keep responses short.
 
