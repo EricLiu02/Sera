@@ -18,6 +18,8 @@ members below. If they say "I", just use "You."
 DO NOT include any extra text—only output the list.
 DO NOT include anything else (such as ```python), as your response should be parsable by python's ast.
 
+This is supposed to be a bill, so make sure the values all add up correctly.
+
 This is how it should be split, and the bill comes right after:
 """
 

@@ -46,7 +46,8 @@ class SplitBill(BaseTool):
         Initializes the SplitBill class with an OpenAI-powered agent for processing.
         """
         super().__init__(**data)
-        self._agent = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
+        self._agent = ChatOpenAI(
+            openai_api_key=OPENAI_API_KEY, model_name="gpt-4o")
 
     async def _arun(self, user_instructions: str, bill: str) -> str:
         """
@@ -60,13 +61,18 @@ class SplitBill(BaseTool):
             str: A formatted response indicating how the bill is split.
         """
         # Construct the prompt using system instructions, user prompt, and OCR output
-        prompt = f"{INITIAL_PROMPT} {user_instructions} {bill}"
+        prompt = f"{INITIAL_PROMPT} {user_instructions} The following is a transcription of the bill. Please consider all the items: {bill}"
         initial_response_text = await self._agent.ainvoke(prompt)
-
+        print(bill)
         # Parse response to extract the breakdown
-        breakdown_dict = self.__raw_text_to_breakdown(initial_response_text.content)
+        breakdown_dict = self.__raw_text_to_breakdown(
+            initial_response_text.content)
+
+        print(breakdown_dict)
 
         split = self.__perform_split(breakdown_dict)
+
+        print(split)
 
         # Ask LLM to generate a nicely formatted answer to the user
         final_prompt = f"""
@@ -111,7 +117,8 @@ class SplitBill(BaseTool):
         Returns:
             Dict[str, float]: A dictionary mapping names to the amount each person owes.
         """
-        persons = [key for key in breakdown if key not in ["<tax>", "<tip>", "<total>"]]
+        persons = [key for key in breakdown if key not in [
+            "<tax>", "<tip>", "<total>"]]
 
         subtotals = {}
         overall_subtotal = 0.0
@@ -131,6 +138,16 @@ class SplitBill(BaseTool):
             person_tip = tip * ratio
             split[name] = round(person_subtotal + person_tax + person_tip, 2)
 
+        # Verify that the computed splits add up to the reported total (if provided)
+        computed_total = round(sum(split.values()), 2)
+        if "<total>" in breakdown:
+            reported_total = round(breakdown["<total>"], 2)
+            difference = round(reported_total - computed_total, 2)
+            if abs(difference) >= 0.01:
+                # Adjust the person with the highest share to account for the rounding difference
+                largest_person = max(split, key=split.get)
+                split[largest_person] = round(
+                    split[largest_person] + difference, 2)
         return split
 
 
@@ -148,7 +165,11 @@ async def get_image_text(message: discord.Message):
                     content=[
                         {
                             "type": "text",
-                            "text": "Extract the text from this receipt image. Don't send anything else other than the extracted text.",
+                            "text": """
+                                You are a helpful agent that transcribes the text from bill images.
+                                Extract the text from this bill image. 
+                                Don't send anything else other than the extracted text. 
+                                This is a bill, so make sure the values add up.""",
                         },
                         {"type": "image_url", "image_url": {"url": image_url}},
                     ]

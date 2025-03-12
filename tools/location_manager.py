@@ -70,7 +70,7 @@ class LocationTool(BaseTool):
         """
         locations = self._load_locations()
         if action == 'get':
-            return locations.get(user_id, None)
+            return locations.get(user_id, "Not set")
 
         if action == 'set' and location:
             locations[user_id] = location

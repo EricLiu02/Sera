@@ -60,7 +60,7 @@ You are a helpful assistant that can help users find and learn about restaurants
 - get_restaurant_details: Use this when users want more detailed information about a specific restaurant
 - split_bill: Use this to split a bill
 - make_restaurant_reservation: Use this to make a restaurant reservation
-- location_manager: Get and set a user's location.
+- location_manager: Get and set a user's location. Only use when user explicitly tells you their location.
 
 Always directly return the output of the tool** without modifying it.
 
@@ -122,7 +122,7 @@ class MistralAgent:
             user_id = str(message.author.id)
             user_location = get_user_location(user_id)
             image_text = await get_image_text(message)
-            human_message = f"This is the user_id: {user_id}. The user is location in: {user_location}. {message.content} {image_text}"
+            human_message = f"For your context, my is user_id: {user_id} the and location you have on the system right now for me is: {user_location}. {message.content} {image_text}"
 
             self.chat_history.append(HumanMessage(content=human_message))
 
