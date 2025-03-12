@@ -261,10 +261,11 @@ class TwilioReservationAgent:
     async def analyze_call_outcome(self, reservation: ReservationDetails) -> bool:
         """Analyze the call transcript to determine if reservation was confirmed"""
         try:
+            history = "\n".join(reservation.chat_history)
             prompt = f"""
 Analyze this restaurant reservation call transcript and determine if the reservation was confirmed.
 If the reservation was confirmed, return the reservation details.
-Transcript: {reservation.chat_history}
+Transcript: {history}
 
 Return a JSON object with:
 - confirmed: boolean (true if reservation was confirmed)
