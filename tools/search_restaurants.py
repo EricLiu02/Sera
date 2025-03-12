@@ -306,25 +306,29 @@ class SearchRestaurantsTool(BaseTool):
         # Add information about additional results
         remaining_count = total_restaurants - end
         if remaining_count > 0:
-            response_parts.append("\nWould you like to see more restaurant recommendations?")
+            response_parts.append(
+                "\nWould you like to see more restaurant recommendations?")
         else:
-            response_parts.append("\nThose are all the restaurants I found. Would you like to try a different search?")
+            response_parts.append(
+                "\nThose are all the restaurants I found. Would you like to try a different search?")
 
         # Store metadata in a completely invisible way using zero-width spaces
         metadata = []
         for i, (pid, details) in enumerate(zip(place_id_map, [restaurants[i] for i in range(start, end)]), 1):
-            metadata.append(f"{details.get('name', 'Unknown Restaurant')}:{i}:{pid}")
-        
+            metadata.append(
+                f"{details.get('name', 'Unknown Restaurant')}:{i}:{pid}")
+
         # Add metadata with multiple zero-width spaces to ensure invisibility
-        response_parts.append(f"\u200b\u200c\u200d{','.join(metadata)}\u200b\u200c\u200d")
+        # response_parts.append(f"\u200b\u200c\u200d{','.join(metadata)}\u200b\u200c\u200d")
 
         # Join all parts except metadata
         visible_content = "\n".join(response_parts[:-1])
-        
+
         # If the visible content is too long, truncate it
-        if len(visible_content) > 1900:
-            visible_content = visible_content[:1850] + "\n\n[Some content truncated due to length]"
-        
+        # if len(visible_content) > 1900:
+        #     visible_content = visible_content[:1850] + \
+        #         "\n\n[Some content truncated due to length]"
+
         # Return visible content with hidden metadata appended
         return visible_content + response_parts[-1]
 

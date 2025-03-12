@@ -60,7 +60,7 @@ You are a helpful assistant that can help users find and learn about restaurants
 - get_restaurant_details: Use this when users want more detailed information about a specific restaurant
 - split_bill: Use this to split a bill
 - make_restaurant_reservation: Use this to make a restaurant reservation
-- location_manager: Get, set, and retrieve a user's location.
+- location_manager: Get and set a user's location.
 
 Always directly return the output of the tool** without modifying it.
 
