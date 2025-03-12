@@ -6,8 +6,12 @@ import googlemaps
 from langchain_core.tools import BaseTool
 from mistralai import Mistral
 from pydantic import Field
+from dotenv import load_dotenv
+
+load_dotenv()
 
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+print("Mistral Key", MISTRAL_API_KEY)
 MISTRAL_MODEL = "mistral-large-latest"
 
 REVIEW_SUMMARY_PROMPT = """You are a helpful assistant specializing in summarizing restaurant reviews.
@@ -28,7 +32,8 @@ class SearchRestaurants:
         """Initialize the Google Maps client with API key from environment variables."""
         self.api_key = os.getenv("GOOGLE_MAPS_API_KEY")
         if not self.api_key:
-            raise ValueError("GOOGLE_MAPS_API_KEY environment variable is not set")
+            raise ValueError(
+                "GOOGLE_MAPS_API_KEY environment variable is not set")
 
         self.client = googlemaps.Client(key=self.api_key)
 
@@ -98,7 +103,8 @@ class SearchRestaurants:
         Returns:
             A list of reviews for the restaurant
         """
-        place_details = self.client.place(place_id=place_id, fields=["reviews"])
+        place_details = self.client.place(
+            place_id=place_id, fields=["reviews"])
 
         return place_details.get("result", {}).get("reviews", [])
 
@@ -165,7 +171,8 @@ class SearchRestaurants:
         for i, review in enumerate(reviews[:max_reviews]):
             stars = "⭐" * int(review.get("rating", 0))
             author = review.get("author_name", "Anonymous")
-            time = datetime.fromtimestamp(review.get("time", 0)).strftime("%Y-%m-%d")
+            time = datetime.fromtimestamp(
+                review.get("time", 0)).strftime("%Y-%m-%d")
             text = review.get("text", "No comment")
 
             formatted_reviews.append(f"{i+1}. {author} - {stars} ({time})")
@@ -207,8 +214,10 @@ class SearchRestaurantsTool(BaseTool):
             - Finding restaurants by cuisine, name, or type
             - Getting restaurant information and reviews
             - Finding dining options in specific locations"""
-    restaurant_api: SearchRestaurants = Field(default_factory=SearchRestaurants)
-    client: Mistral = Field(default_factory=lambda: Mistral(api_key=MISTRAL_API_KEY))
+    restaurant_api: SearchRestaurants = Field(
+        default_factory=SearchRestaurants)
+    client: Mistral = Field(
+        default_factory=lambda: Mistral(api_key=MISTRAL_API_KEY))
     return_direct: bool = True
 
     def _run(
@@ -246,18 +255,21 @@ class SearchRestaurantsTool(BaseTool):
                 response_parts.append("\n" + "-" * 30 + "\n")
 
             # Get details and reviews
-            restaurant_details = self.restaurant_api.get_restaurant_details(place_id)
+            restaurant_details = self.restaurant_api.get_restaurant_details(
+                place_id)
             reviews = self.restaurant_api.get_restaurant_reviews(place_id)
 
             # Format basic restaurant information
             info = []
             # Add name without any visible markers
-            info.append(f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
+            info.append(
+                f"**{restaurant_details.get('name', 'Unknown Restaurant')}**")
 
             rating_parts = []
             if "rating" in restaurant_details:
                 stars = "⭐" * int(restaurant_details.get("rating", 0))
-                rating_parts.append(f"{restaurant_details.get('rating')} {stars}")
+                rating_parts.append(
+                    f"{restaurant_details.get('rating')} {stars}")
             if "price_level" in restaurant_details:
                 price_level = "💰" * restaurant_details.get("price_level", 0)
                 rating_parts.append(price_level)
@@ -271,7 +283,8 @@ class SearchRestaurantsTool(BaseTool):
 
             # Generate AI summary of reviews if available
             if reviews:
-                reviews_text = self.restaurant_api.prepare_reviews_for_summary(reviews)
+                reviews_text = self.restaurant_api.prepare_reviews_for_summary(
+                    reviews)
 
                 # Generate summary using Mistral AI
                 summary_messages = [
@@ -307,7 +320,8 @@ class SearchRestaurantsTool(BaseTool):
             zip(place_id_map, [restaurants[i] for i in range(start, end)]), 1
         ):
             # Use zero-width spaces and zero-width joiners to make it completely invisible
-            metadata.append(f"{details.get('name', 'Unknown Restaurant')}:{i}:{pid}")
+            metadata.append(
+                f"{details.get('name', 'Unknown Restaurant')}:{i}:{pid}")
         response_parts.append(
             f"\u200b\u200c\u200d{','.join(metadata)}\u200b\u200c\u200d"
         )
@@ -348,7 +362,8 @@ class SearchRestaurantsTool(BaseTool):
             if len(tool_output) > 1900:
                 metadata_part = entries[-1]
                 truncated_content = (
-                    tool_output[:1850] + "\n\n[Some content truncated due to length]"
+                    tool_output[:1850] +
+                    "\n\n[Some content truncated due to length]"
                 )
                 tool_output = truncated_content + metadata_part
 
