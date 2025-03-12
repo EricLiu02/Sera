@@ -12,7 +12,7 @@ from tools.search_restaurants import SearchRestaurantsTool
 from tools.split_bill import SplitBill, get_image_text
 from tools.restaurant_details import RestaurantDetailsTool
 from tools.reservation_agent import ReservationAgent
-from tools.location_manager import LocationTool
+from tools.location_manager import LocationTool, get_user_location
 
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -133,8 +133,10 @@ class MistralAgent:
         self.agent = AgentExecutor(agent=agent, tools=tools)
 
     async def run(self, message: discord.Message):
+        user_id = str(message.author.id)
+        user_location = get_user_location(user_id)
         image_text = await get_image_text(message)
-        human_message = f"{message.content} {image_text}"
+        human_message = f"This is the user_id: {user_id}. The user is location in: {user_location}. {message.content} {image_text}"
 
         self.chat_history.append(HumanMessage(content=human_message))
 
@@ -146,11 +148,5 @@ class MistralAgent:
         )
         response_text = output["output"]
         self.chat_history.append(AIMessage(content=response_text))
-        
-        # Check if AI is asking for a location
-        if "Where are you located?" in response_text or "Do you want to update it?" in response_text:
-            location_tool = LocationTool()
-            user_location = await location_tool.wait_for_location(message)
-            return user_location
 
         return output["output"]
