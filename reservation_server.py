@@ -1,6 +1,7 @@
 import os
 import logging
 import atexit
+from typing import Dict
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
@@ -32,7 +33,9 @@ with open("webhook_url.txt", "w") as f:
 
 app = FastAPI()
 agent = TwilioReservationAgent()
+
 current_reservation = None
+active_calls: Dict[str, ReservationDetails] = {}
 
 
 @app.post("/set_reservation")
@@ -41,6 +44,35 @@ async def set_reservation(reservation: dict):
     current_reservation = ReservationDetails(**reservation)
     logger.info(f"Reservation set: {current_reservation}")
     return {"status": "success"}
+
+
+@app.post("/call_status")
+async def handle_call_status(request: Request):
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        call_status = form_data.get("CallStatus")
+        call_duration = form_data.get("CallDuration")
+        recording_url = form_data.get("RecordingUrl")
+
+        logger.info(f"Call {call_sid} ended with status: {call_status}")
+
+        if call_sid in active_calls:
+            call_context = active_calls[call_sid]
+            call_context.status = call_status
+
+            print(f"Call {call_sid} ended with status: {call_status}")
+            print(f"Call duration: {call_duration}")
+            print(f"Recording URL: {recording_url}")
+
+            await agent.analyze_call_outcome(call_context)
+
+            del active_calls[call_sid]
+
+    except Exception as e:
+        logger.error(f"Error handling call status: {str(e)}", exc_info=True)
+
+    return Response(content="", media_type="application/xml")
 
 
 @app.post("/gather")
@@ -53,7 +85,12 @@ async def handle_gather(request: Request):
         logger.info(f"Form data: {form_data}")
         logger.info(f"Call SID: {call_sid}")
 
-        if not current_reservation:
+        if call_sid in active_calls:
+            reservation = active_calls[call_sid]
+        elif current_reservation:
+            reservation = current_reservation
+            active_calls[call_sid] = reservation
+        else:
             logger.error(f"No reservation found for call {call_sid}")
             response = VoiceResponse()
             response.say(

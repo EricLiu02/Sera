@@ -11,6 +11,8 @@ class ReservationDetails(BaseModel):
     customer_name: str
     special_requests: Optional[str] = None
     chat_history: List[str] = None
+    status: str = "pending"
+    call_sid: Optional[str] = None
 
 
 EXTRACT_RESERVATION_DETAILS_PROMPT = """
@@ -103,8 +105,8 @@ def get_restaurant_conversation_prompt(
     reservation: ReservationDetails, is_initial: bool
 ):
     return f"""
-    You are an AI assistant making a restaurant reservation call.
-    You are the one MAKING the call TO the restaurant.
+    You are an AI assistant making a restaurant reservation call on behalf of a customer.
+    You are the one MAKING the call TO the restaurant. You are not the restaurant, but rather a customer calling to make a reservation for a specific time and party size.
 
     Current reservation details:
     - Party size: {reservation.party_size} people
@@ -124,6 +126,9 @@ def get_restaurant_conversation_prompt(
     5. If they have questions: Answer professionally
     6. Keep responses conversational but focused. Do not repeat yourself unless necessary. Keep responses short.
 
-    Remember: YOU are making the reservation, they are answering your call.
-    Keep the conversation focused on confirming this reservation.
+    Remember: YOU are making the reservation, they are answering your call and will determine if the reservation time is available.
+    Keep the conversation focused on getting the restaurant to confirm this reservation.
+   
+    If the date is not available, do not ask about a different date. Explain that you understand the situation and end the call.
+    Do not persist in asking about a time that the restaurant has confirmed which is not available.
     """

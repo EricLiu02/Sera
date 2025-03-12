@@ -13,7 +13,7 @@ from twilio.twiml.voice_response import VoiceResponse
 import httpx
 from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
-
+import discord
 
 from tools.prompts.reservation_prompts import (
     ReservationDetails,
@@ -258,6 +258,71 @@ class TwilioReservationAgent:
                 "I couldn't process that request. Please provide the restaurant's phone number (10 digits for US or with country code), party size, time, and name for the reservation.",
             )
 
+    async def analyze_call_outcome(self, reservation: ReservationDetails) -> bool:
+        """Analyze the call transcript to determine if reservation was confirmed"""
+        try:
+            prompt = f"""
+Analyze this restaurant reservation call transcript and determine if the reservation was confirmed.
+If the reservation was confirmed, return the reservation details.
+Transcript: {reservation.chat_history}
+
+Return a JSON object with:
+- confirmed: boolean (true if reservation was confirmed)
+- party_size: int (party size)
+- reservation_time: datetime (reservation time)
+- customer_name: str (customer name)
+- special_requests: str (special requests)
+"""
+            response = await self._mistal_client.chat.complete_async(
+                model=MISTRAL_MODEL,
+                messages=[{"role": "system", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            try:
+                status = (
+                    "✅ confirmed"
+                    if result.get("confirmed", False)
+                    else "❌ not confirmed"
+                )
+
+                time = result.get("reservation_time")
+                if time is not None:
+                    time = datetime.fromisoformat(time)
+                    time = time.strftime("%I:%M %p on %A, %B %d")
+                else:
+                    time = "unknown"
+
+                message = (
+                    f"Your reservation request has been {status}!\n"
+                    f"👥 Party size: {result.get('party_size', 'unknown')}\n"
+                    f"⏰ Time: {time}\n"
+                    f"👤 Name: {result.get('customer_name', 'unknown')}"
+                )
+
+                DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+                DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
+                intents = discord.Intents.all()
+                client = discord.Client(intents=intents)
+
+                @client.event
+                async def on_ready():
+                    logger.info("Discord client ready")
+                    channel = client.get_channel(int(DISCORD_CHANNEL_ID))
+                    print(channel)
+
+                    await channel.send(message)
+
+                await client.start(DISCORD_TOKEN)
+
+            except Exception as e:
+                logger.error(f"Error analyzing call outcome: {str(e)}", exc_info=True)
+                return False
+
+        except Exception as e:
+            logger.error(f"Error notifying Discord user: {str(e)}", exc_info=True)
+
     async def make_reservation_call(self, reservation: ReservationDetails) -> str:
         """Make the initial call to the restaurant"""
         logger.info("Starting reservation call")
@@ -277,12 +342,14 @@ class TwilioReservationAgent:
                 to=formatted_restaurant_phone,
                 from_=self.twilio_number,
                 record=True,
+                status_callback=f"{self.webhook_base_url}/call_status",
+                status_callback_event=["completed"],
             )
             logger.info(f"Call created with SID: {call.sid}")
 
             return (
                 f"✓ Starting call with {formatted_restaurant_phone} for your reservation.\n"
-                f"I'll handle the conversation and update you on the result.\n"
+                f"I'll handle the conversation and let you know the outcome.\n"
                 f"Reservation details:\n"
                 f"- Party size: {reservation.party_size}\n"
                 f"- Time: {reservation.reservation_time.strftime('%I:%M %p on %A, %B %d')}\n"
