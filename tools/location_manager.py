@@ -105,11 +105,22 @@ class LocationTool(BaseTool):
             return "Where are you located? Please type your location."
 
 
-def get_user_location(self, user_id: str) -> str:
+def load_locations() -> Dict[str, str]:
+    """Load the saved locations from the JSON file."""
+    if os.path.exists(LOCATION_FILE):
+        try:
+            with open(LOCATION_FILE, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def get_user_location(user_id: str) -> str:
     """
     Retrieves the stored location of another user.
     """
-    user_data = self._load_locations()
+    user_data = load_locations()
     if user_id in user_data:
         return user_data[user_id]
     return "You still don't have a location for this user."
