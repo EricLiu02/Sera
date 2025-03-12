@@ -118,20 +118,27 @@ class MistralAgent:
         self.agent = AgentExecutor(agent=agent, tools=tools)
 
     async def run(self, message: discord.Message):
-        user_id = str(message.author.id)
-        user_location = get_user_location(user_id)
-        image_text = await get_image_text(message)
-        human_message = f"This is the user_id: {user_id}. The user is location in: {user_location}. {message.content} {image_text}"
+        try:
+            user_id = str(message.author.id)
+            user_location = get_user_location(user_id)
+            image_text = await get_image_text(message)
+            human_message = f"This is the user_id: {user_id}. The user is location in: {user_location}. {message.content} {image_text}"
 
-        self.chat_history.append(HumanMessage(content=human_message))
+            self.chat_history.append(HumanMessage(content=human_message))
 
-        output = await self.agent.ainvoke(
-            {
-                "input": human_message,
-                "chat_history": self.chat_history,
-            }
-        )
-        response_text = output["output"]
+            output = await self.agent.ainvoke(
+                {
+                    "input": human_message,
+                    "chat_history": self.chat_history,
+                }
+            )
+            print(output)
+            response_text = output["output"]
+
+        except Exception as e:
+            print(e)
+            response_text = "I'm sorry, I had an error. Please try again."
+
         self.chat_history.append(AIMessage(content=response_text))
 
         return output["output"]

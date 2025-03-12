@@ -40,7 +40,7 @@ class LocationTool(BaseTool):
     name: str = "location_manager"
     description: str = "Manages user location data for personalized responses"
     args_schema: Optional[ArgsSchema] = LocationInput
-    return_direct: bool = False
+    return_direct: bool = True
 
     def _load_locations(self) -> Dict[str, str]:
         """Load the saved locations from the JSON file."""
