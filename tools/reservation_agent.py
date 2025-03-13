@@ -7,7 +7,6 @@ from typing import Dict, Optional
 import asyncio
 
 from mistralai import Mistral
-from openai import AsyncOpenAI
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import httpx
@@ -25,7 +24,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MISTRAL_MODEL = "mistral-large-latest"
-OPENAI_REALTIME_MODEL = "gpt-4o-realtime-preview"
 TWILIO_VOICE = os.getenv("TWILIO_VOICE")
 
 
@@ -35,18 +33,16 @@ class TwilioReservationAgent:
         self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         self.twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
         if not all(
-            [self.account_sid, self.auth_token, self.twilio_number, OPENAI_API_KEY]
+            [self.account_sid, self.auth_token, self.twilio_number, MISTRAL_API_KEY]
         ):
             raise ValueError(
-                "Missing required Twilio and OpenAI credentials in environment variables"
+                "Missing required Twilio and Mistral credentials in environment variables"
             )
 
         self.client = Client(self.account_sid, self.auth_token)
         self._mistal_client = Mistral(api_key=MISTRAL_API_KEY)
-        self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self.active_conversations = {}
         self.conversations = {}
 
@@ -95,99 +91,65 @@ class TwilioReservationAgent:
         speech_input: str = None,
         is_initial: bool = False,
     ) -> str:
-        """Handle all conversation with OpenAI, both initial greeting and ongoing"""
+        """Handle all conversation with Mistral, both initial greeting and ongoing"""
         try:
-            logger.info("Starting OpenAI conversation")
+            logger.info("Starting Mistral conversation")
             if is_initial:
                 logger.info("Generating initial greeting")
             else:
                 logger.info(f"Processing restaurant response: '{speech_input}'")
 
-            async with self.openai_client.beta.realtime.connect(
-                model=OPENAI_REALTIME_MODEL
-            ) as connection:
-                await connection.session.update(session={"modalities": ["text"]})
+            system_prompt = get_restaurant_conversation_prompt(reservation, is_initial)
 
-                await connection.conversation.item.create(
-                    item={
-                        "type": "message",
-                        "role": "system",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": get_restaurant_conversation_prompt(
-                                    reservation, is_initial
-                                ),
-                            }
-                        ],
+            # Prepare chat messages
+            messages = [
+                {"role": "system", "content": system_prompt},
+            ]
+
+            # Add conversation history
+            if not is_initial:
+                messages.append(
+                    {"role": "user", "content": "\n".join(reservation.chat_history)}
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Start the conversation with your initial greeting.",
                     }
                 )
 
-                # Add user message if this isn't the initial greeting
-                if not is_initial:
-                    await connection.conversation.item.create(
-                        item={
-                            "type": "message",
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": "\n".join(reservation.chat_history),
-                                }
-                            ],
-                        }
-                    )
-                else:
-                    await connection.conversation.item.create(
-                        item={
-                            "type": "message",
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": "Start the conversation with your initial greeting.",
-                                }
-                            ],
-                        }
-                    )
+            # Get response from Mistral
+            response = await self._mistal_client.chat.complete_async(
+                model=MISTRAL_MODEL, messages=messages
+            )
 
-                await connection.response.create()
+            ai_response = response.choices[0].message.content
+            logger.info(f"AI response: '{ai_response}'")
 
-                full_response = []
-                async for event in connection:
-                    if event.type == "response.text.delta":
-                        full_response.append(event.delta)
-                        print(event.delta, end="", flush=True)
-                    elif event.type == "response.done":
-                        print()
-                        break
+            reservation.chat_history.append("AI Assistant: " + ai_response)
 
-                ai_response = "".join(full_response)
-                logger.info(f"AI response: '{ai_response}'")
-
-                reservation.chat_history.append("AI Assistant: " + ai_response)
-
-                async with httpx.AsyncClient() as client:
-                    await client.post(
-                        f"{self.webhook_base_url}/set_reservation",
-                        json=self.reservation_to_dict(reservation),
-                    )
-
-                # Generate TwiML with the AI response
-                response = VoiceResponse()
-                gather = response.gather(
-                    input="speech",
-                    action=f"{self.webhook_base_url}/gather",
-                    method="POST",
-                    language="en-US",
-                    speechTimeout="auto",
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    f"{self.webhook_base_url}/set_reservation",
+                    json=self.reservation_to_dict(reservation),
                 )
-                gather.say(ai_response, voice=TWILIO_VOICE)
 
-                return str(response)
+            # Generate TwiML with the AI response
+            response = VoiceResponse()
+            gather = response.gather(
+                input="speech",
+                action=f"{self.webhook_base_url}/gather",
+                method="POST",
+                language="en-US",
+                speechTimeout="auto",
+            )
+            gather.say(ai_response, voice=TWILIO_VOICE)
+
+            return str(response)
 
         except Exception as e:
-            logger.error(f"Error in OpenAI conversation: {str(e)}", exc_info=True)
+            logger.error(f"Error in Mistral conversation: {str(e)}", exc_info=True)
             response = VoiceResponse()
             response.say(
                 "I apologize for the technical difficulty. Could you please repeat that?",
@@ -342,7 +304,7 @@ Return a JSON object with:
                 twiml=twiml,
                 to=formatted_restaurant_phone,
                 from_=self.twilio_number,
-                record=True,
+                record=False,
                 status_callback=f"{self.webhook_base_url}/call_status",
                 status_callback_event=["completed"],
             )

@@ -18,41 +18,6 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 MISTRAL_MODEL = "mistral-large-latest"
-# SYSTEM_PROMPT = """You are a helpful assistant with access to a search_restaurants tool for finding restaurant information.
-
-# Your primary task is to help users find and learn about restaurants. When users ask about restaurants, whether directly or indirectly, use the search_restaurants tool to provide accurate information.
-
-# Examples of when to use the tool:
-# 1. Direct restaurant queries:
-#    - "Find Italian restaurants in San Francisco"
-#    - "What are some good restaurants near Stanford?"
-#    - "Show me Chinese food places in Palo Alto"
-
-# 2. Indirect restaurant queries:
-#    - "Where can I get sushi around here?"
-#    - "I'm hungry for Mexican food"
-#    - "What's a good place to eat near downtown?"
-
-# 3. Specific restaurant inquiries:
-#    - "Tell me about Blue Bottle Coffee"
-#    - "What are the reviews like for Pizzeria Delfina?"
-
-# 4. Pagination requests:
-#    - When users say "yes", "show more", "more options", or similar phrases in response to being asked if they want to see more restaurants
-#    - In these cases, use the search_restaurants tool with the same query and location from the context, and the appropriate start_index
-#    - The context will be provided as a dictionary with 'type': 'search_context', 'query', 'location', and 'results_shown' fields
-
-# When using the tool, extract:
-# - query: The type of restaurant, cuisine, or specific restaurant name
-# - location: The area to search in (if provided)
-# - start_index: For pagination requests, use the results_shown value from the context
-
-# For non-restaurant queries, respond normally without using the tool.
-
-# Remember to maintain context for pagination when users ask to see more options.
-
-# If the user asks to split a bill, use the split_bill tool. Assume that the image of the bill will be
-# provided to the tool"""
 
 SYSTEM_PROMPT = """
 You are a helpful assistant that can help users find and learn about restaurants. You have available to you the following tools:
@@ -140,5 +105,7 @@ class MistralAgent:
             response_text = "I'm sorry, I had an error. Please try again."
 
         self.chat_history.append(AIMessage(content=response_text))
+
+        self.chat_history = self.chat_history[-100:]
 
         return output["output"]
